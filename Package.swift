@@ -5,35 +5,37 @@ import PackageDescription
 
 let package = Package(
     name: "HNSW",
+    platforms: [.macOS(.v11), .iOS(.v16)],
     products: [
         .library(
             name: "HNSW",
-            targets: ["HNSW"]),
+            targets: ["HNSW"]
+        ),
     ],
     targets: [
         .target(
             name: "CHNSWLib",
             path: "Sources/CHNSWLib",
             exclude: [],
-            sources: ["hnswlib_wrapper.cpp"],
+//            sources: ["hnswlib_wrapper.cpp"],
             publicHeadersPath: "include",
             cxxSettings: [
                 .headerSearchPath("../../hnswlib"),
-                .headerSearchPath("../../hnswlib/hnswlib")
+                .headerSearchPath("../../hnswlib/hnswlib"),
             ]
         ),
         .target(
             name: "HNSW",
             dependencies: ["CHNSWLib"],
             swiftSettings: [
-                .interoperabilityMode(.Cxx)
+                .interoperabilityMode(.Cxx),
             ]
         ),
         .testTarget(
             name: "HNSWTests",
             dependencies: ["HNSW"],
             swiftSettings: [
-                .interoperabilityMode(.Cxx)
+                .interoperabilityMode(.Cxx),
             ]
         ),
     ],

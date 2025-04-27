@@ -1,8 +1,7 @@
 //
-//  SwiftUIView.swift
-//  HNSW
+//  Fixtures.swift
 //
-//  Created by Noah Kamara on 27.04.2025.
+//  Copyright © 2024 Noah Kamara.
 //
 
 import HNSW
@@ -17,7 +16,7 @@ extension HNSWIndex {
         guard let embedding = NLEmbedding.wordEmbedding(for: .english) else {
             throw TestError("Failed to create NLEmbedding")
         }
-                
+
         // Get embeddings for the words
         var vectors: [[Float]] = []
         for word in words {
@@ -26,18 +25,17 @@ extension HNSWIndex {
             }
             vectors.append(vector.map(Float.init))
         }
-        
+
         // Create HNSW index
         let dimension = vectors[0].count
         let maxElements = 1000
         let index = HNSWIndex(dimension: dimension, maxElements: maxElements)
-        
+
         // Add vectors to the index
         for (i, vector) in vectors.enumerated() {
-            try index.addPoint(vector, id: i)
+            try index.addPoint(vector, id: Int32(i))
         }
-        
+
         return index
     }
 }
-
