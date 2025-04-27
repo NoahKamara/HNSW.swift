@@ -31,8 +31,13 @@ void hnswlib_free_index(void* index_ptr);
  * @param index_ptr Pointer to the index
  * @param vector The vector to add (array of floats)
  * @param id The integer ID to associate with the vector
+ * @return 0 on success, negative value on error:
+ *         -1: Index not initialized
+ *         -2: ID exceeds maximum elements
+ *         -3: Point with ID already exists
+ *         -4: General error
  */
-void hnswlib_add_point(void* index_ptr, const float* vector, int id);
+int hnswlib_add_point(void* index_ptr, const float* vector, int id);
 
 /**
  * Searches for k nearest neighbors of a query vector.
@@ -44,6 +49,25 @@ void hnswlib_add_point(void* index_ptr, const float* vector, int id);
  * @param k The number of nearest neighbors to find
  */
 void hnswlib_search_knn(void* index_ptr, const float* query, int* ids, float* distances, int k);
+
+/**
+ * Sets the current filter function for the index.
+ * 
+ * @param index_ptr Pointer to the index
+ * @param filter_func A function that takes a metadata string and returns true if the vector should be included in results
+ */
+void hnswlib_set_filter(void* index_ptr, bool (*filter_func)(const char*));
+
+/**
+ * Searches for k nearest neighbors of a query vector with the current filter.
+ * 
+ * @param index_ptr Pointer to the index
+ * @param query The query vector
+ * @param ids Array to store the IDs of the nearest neighbors
+ * @param distances Array to store the distances to the nearest neighbors
+ * @param k The number of nearest neighbors to find
+ */
+void hnswlib_search_knn_with_filter(void* index_ptr, const float* query, int* ids, float* distances, int k);
 
 /**
  * Sets the query time accuracy/speed trade-off parameter.
@@ -147,6 +171,47 @@ unsigned long hnswlib_get_max_elements(void* index_ptr);
  * @return The current number of elements
  */
 unsigned long hnswlib_get_current_count(void* index_ptr);
+
+/**
+ * Adds a vector to the index with the specified ID and metadata.
+ * 
+ * @param index_ptr Pointer to the index
+ * @param vector The vector to add (array of floats)
+ * @param id The integer ID to associate with the vector
+ * @param metadata The metadata string to associate with the vector
+ * @return 0 on success, negative value on error:
+ *         -1: Index not initialized
+ *         -2: ID exceeds maximum elements
+ *         -3: Point with ID already exists
+ *         -4: General error
+ */
+int hnswlib_add_point_with_metadata(void* index_ptr, const float* vector, int id, const char* metadata);
+
+/**
+ * Gets the metadata associated with a vector ID.
+ * 
+ * @param index_ptr Pointer to the index
+ * @param id The ID of the vector
+ * @return The metadata string, or nullptr if no metadata exists
+ */
+const char* hnswlib_get_metadata(void* index_ptr, int id);
+
+/**
+ * Sets or updates the metadata for a vector ID.
+ * 
+ * @param index_ptr Pointer to the index
+ * @param id The ID of the vector
+ * @param metadata The metadata string to associate with the vector
+ */
+void hnswlib_set_metadata(void* index_ptr, int id, const char* metadata);
+
+/**
+ * Removes the metadata associated with a vector ID.
+ * 
+ * @param index_ptr Pointer to the index
+ * @param id The ID of the vector
+ */
+void hnswlib_remove_metadata(void* index_ptr, int id);
 
 #ifdef __cplusplus
 }

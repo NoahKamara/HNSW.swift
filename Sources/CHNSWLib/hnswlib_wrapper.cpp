@@ -3,10 +3,32 @@
 #include "hnswlib/hnswlib.h"
 #include <vector>
 #include <queue>
+#include <unordered_map>
+#include <string>
+#include <functional>
 
 struct HNSWIndexWrapper {
     hnswlib::HierarchicalNSW<float>* index;
     int dimension;
+    std::unordered_map<int, std::string> metadata;  // Map of ID to metadata string
+    bool (*filter_func)(const char*);  // Current filter function
+};
+
+// Custom filter functor that checks metadata
+class MetadataFilterFunctor : public hnswlib::BaseFilterFunctor {
+private:
+    HNSWIndexWrapper* wrapper;
+
+public:
+    MetadataFilterFunctor(HNSWIndexWrapper* wrapper) : wrapper(wrapper) {}
+
+    bool operator()(hnswlib::labeltype id) override {
+        auto it = wrapper->metadata.find(id);
+        if (it == wrapper->metadata.end()) {
+            return false;  // No metadata means no match
+        }
+        return wrapper->filter_func ? wrapper->filter_func(it->second.c_str()) : true;
+    }
 };
 
 extern "C" {
@@ -15,7 +37,7 @@ extern "C" {
     void* hnswlib_create_index(int dim, int max_elements, int M, int ef_construction) {
         SpaceInterface<float>* space = new L2Space(dim);
         HierarchicalNSW<float>* index = new HierarchicalNSW<float>(space, max_elements, M, ef_construction);
-        HNSWIndexWrapper* wrapper = new HNSWIndexWrapper{index, dim};
+        HNSWIndexWrapper* wrapper = new HNSWIndexWrapper{index, dim, {}, nullptr};
         return static_cast<void*>(wrapper);
     }
     
@@ -25,9 +47,82 @@ extern "C" {
         delete wrapper;
     }
     
-    void hnswlib_add_point(void* index_ptr, const float* vector, int id) {
+    int hnswlib_add_point(void* index_ptr, const float* vector, int id) {
+        try {
+            auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
+            
+            // Verify the index is in a valid state
+            if (wrapper->index == nullptr) {
+                return -1;  // Index not initialized
+            }
+            
+            // Verify we have space for the new point
+            if (id >= wrapper->index->max_elements_) {
+                return -2;  // ID exceeds maximum elements
+            }
+            
+            // Verify the point isn't already added
+            if (wrapper->index->label_lookup_.find(id) != wrapper->index->label_lookup_.end()) {
+                return -3;  // Point with ID already exists
+            }
+            
+            wrapper->index->addPoint(vector, id);
+            return 0;  // Success
+        } catch (const std::exception& e) {
+            return -4;  // General error
+        }
+    }
+    
+    int hnswlib_add_point_with_metadata(void* index_ptr, const float* vector, int id, const char* metadata) {
+        try {
+            auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
+            
+            // Verify the index is in a valid state
+            if (wrapper->index == nullptr) {
+                return -1;  // Index not initialized
+            }
+            
+            // Verify we have space for the new point
+            if (id >= wrapper->index->max_elements_) {
+                return -2;  // ID exceeds maximum elements
+            }
+            
+            // Verify the point isn't already added
+            if (wrapper->index->label_lookup_.find(id) != wrapper->index->label_lookup_.end()) {
+                return -3;  // Point with ID already exists
+            }
+            
+            wrapper->index->addPoint(vector, id);
+            if (metadata != nullptr) {
+                wrapper->metadata[id] = std::string(metadata);
+            }
+            return 0;  // Success
+        } catch (const std::exception& e) {
+            return -4;  // General error
+        }
+    }
+    
+    const char* hnswlib_get_metadata(void* index_ptr, int id) {
         auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
-        wrapper->index->addPoint(vector, id);
+        auto it = wrapper->metadata.find(id);
+        if (it != wrapper->metadata.end()) {
+            return it->second.c_str();
+        }
+        return nullptr;
+    }
+    
+    void hnswlib_set_metadata(void* index_ptr, int id, const char* metadata) {
+        auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
+        if (metadata != nullptr) {
+            wrapper->metadata[id] = std::string(metadata);
+        } else {
+            wrapper->metadata.erase(id);
+        }
+    }
+    
+    void hnswlib_remove_metadata(void* index_ptr, int id) {
+        auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
+        wrapper->metadata.erase(id);
     }
     
     void hnswlib_search_knn(void* index_ptr, const float* query, int* ids, float* distances, int k) {
@@ -100,10 +195,30 @@ extern "C" {
     int hnswlib_resize_index(void* index_ptr, int new_size) {
         try {
             auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
+            
+            // Verify the current state
+            if (new_size < wrapper->index->cur_element_count) {
+                return -1;  // Cannot resize to smaller than current count
+            }
+            
+            // Store current state for verification
+            size_t current_count = wrapper->index->cur_element_count;
+            
+            // Perform the resize
             wrapper->index->resizeIndex(new_size);
+            
+            // Verify the resize operation maintained the correct state
+            if (wrapper->index->cur_element_count != current_count) {
+                return -2;  // Element count changed during resize
+            }
+            
+            if (wrapper->index->max_elements_ != new_size) {
+                return -3;  // Max elements not updated correctly
+            }
+            
             return 0;
         } catch (...) {
-            return -1;
+            return -4;  // General error
         }
     }
 
@@ -135,5 +250,33 @@ extern "C" {
     unsigned long hnswlib_get_current_count(void* index_ptr) {
         auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
         return wrapper->index->cur_element_count;
+    }
+
+    void hnswlib_set_filter(void* index_ptr, bool (*filter_func)(const char*)) {
+        auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
+        wrapper->filter_func = filter_func;
+    }
+
+    void hnswlib_search_knn_with_filter(void* index_ptr, const float* query, int* ids, float* distances, int k) {
+        auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
+        
+        if (wrapper->filter_func) {
+            MetadataFilterFunctor filter(wrapper);
+            std::priority_queue<std::pair<float, labeltype>> result = wrapper->index->searchKnn(query, k, &filter);
+            
+            std::vector<std::pair<float, labeltype>> sorted_results;
+            while (!result.empty()) {
+                sorted_results.push_back(result.top());
+                result.pop();
+            }
+            
+            for (int i = sorted_results.size() - 1; i >= 0; i--) {
+                int idx = sorted_results.size() - 1 - i;
+                distances[idx] = sorted_results[i].first;
+                ids[idx] = static_cast<int>(sorted_results[i].second);
+            }
+        } else {
+            hnswlib_search_knn(index_ptr, query, ids, distances, k);
+        }
     }
 } 

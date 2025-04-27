@@ -29,6 +29,7 @@ let package = Package(
             dependencies: ["CHNSWLib"],
             swiftSettings: [
                 .interoperabilityMode(.Cxx),
+                .enableExperimentalFeature("StrictConcurrency")
             ]
         ),
         .testTarget(
