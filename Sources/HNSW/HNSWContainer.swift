@@ -11,17 +11,19 @@ public actor HNSWContainer {
     public init(index: HNSWIndex) {
         self.index = index
     }
-
-    /// Perform an action on the ``HNSWIndex`` and return it's result.
-    public func perform<R>(
-        _ action: (HNSWIndex) throws -> R
-    ) async rethrows -> R {
-        try action(self.index)
-    }
     
-    @_disfavoredOverload // SR-15150 Async overloading in protocol implementation fails
-    /// Perform an action on the ``HNSWIndex`` and return it's result.
-    public func perform<R>(_ action: (HNSWIndex) throws -> R) throws -> R {
-        try action(self.index)
+    /// Perform an action on the ``HNSWIndex`` and return its result, ensuring async and safe execution within the actor.
+    public func perform<R: Sendable>(
+        _ action: @Sendable (HNSWIndex) throws -> R
+    ) async throws -> R {
+        try await withCheckedThrowingContinuation { continuation in
+            do {
+                // Perform the action synchronously on the actor's state
+                let result = try action(self.index)
+                continuation.resume(returning: result)
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
     }
 }

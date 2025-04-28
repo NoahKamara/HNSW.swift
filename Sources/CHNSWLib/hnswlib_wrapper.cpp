@@ -6,12 +6,15 @@
 #include <unordered_map>
 #include <string>
 #include <functional>
+#include <cstring>
 
 struct HNSWIndexWrapper {
     hnswlib::HierarchicalNSW<float>* index;
+    hnswlib::SpaceInterface<float>* space;  // Store the space interface
     int dimension;
     std::unordered_map<int, std::string> metadata;  // Map of ID to metadata string
     bool (*filter_func)(const char*);  // Current filter function
+    HNSWSpaceType space_type;  // Store the space type
 };
 
 // Custom filter functor that checks metadata
@@ -23,7 +26,10 @@ public:
     MetadataFilterFunctor(HNSWIndexWrapper* wrapper) : wrapper(wrapper) {}
 
     bool operator()(hnswlib::labeltype id) override {
-        auto it = wrapper->metadata.find(id);
+        // Skip negative IDs
+        if (id < 0) return false;
+        
+        auto it = wrapper->metadata.find(static_cast<int>(id));
         if (it == wrapper->metadata.end()) {
             return false;  // No metadata means no match
         }
@@ -34,16 +40,23 @@ public:
 extern "C" {
     using namespace hnswlib;
     
-    void* hnswlib_create_index(int dim, int max_elements, int M, int ef_construction) {
-        SpaceInterface<float>* space = new L2Space(dim);
-        HierarchicalNSW<float>* index = new HierarchicalNSW<float>(space, max_elements, M, ef_construction);
-        HNSWIndexWrapper* wrapper = new HNSWIndexWrapper{index, dim, {}, nullptr};
+    void* hnswlib_create_index(int dim, int max_elements, int M, int ef_construction, HNSWSpaceType space_type) {
+        hnswlib::SpaceInterface<float>* space;
+        if (space_type == HNSW_SPACE_COSINE) {
+            space = new hnswlib::InnerProductSpace(dim);  // Use InnerProductSpace for cosine similarity
+        } else {
+            space = new hnswlib::L2Space(dim);
+        }
+        
+        hnswlib::HierarchicalNSW<float>* index = new hnswlib::HierarchicalNSW<float>(space, max_elements, M, ef_construction);
+        HNSWIndexWrapper* wrapper = new HNSWIndexWrapper{index, space, dim, {}, nullptr, space_type};
         return static_cast<void*>(wrapper);
     }
     
     void hnswlib_free_index(void* index_ptr) {
         auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
         delete wrapper->index;
+        delete wrapper->space;  // Free the space interface
         delete wrapper;
     }
     
@@ -135,10 +148,10 @@ extern "C" {
             result.pop();
         }
         
-        for (int i = sorted_results.size() - 1; i >= 0; i--) {
-            int idx = sorted_results.size() - 1 - i;
-            distances[idx] = sorted_results[i].first;
-            ids[idx] = static_cast<int>(sorted_results[i].second);
+        // Fill in the results
+        for (size_t i = 0; i < sorted_results.size(); i++) {
+            ids[i] = static_cast<int>(sorted_results[i].second);
+            distances[i] = sorted_results[i].first;
         }
     }
 
@@ -165,7 +178,7 @@ extern "C" {
     int hnswlib_load_index(void* index_ptr, const char* path, int max_elements) {
         try {
             auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
-            wrapper->index->loadIndex(path, nullptr, max_elements);
+            wrapper->index->loadIndex(path, wrapper->space, max_elements);  // Use the stored space interface
             return 0;
         } catch (...) {
             return -1;
@@ -222,9 +235,9 @@ extern "C" {
         }
     }
 
-    const char* hnswlib_get_space(void* index_ptr) {
+    HNSWSpaceType hnswlib_get_space_type(void* index_ptr) {
         auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
-        return "l2"; // Currently only L2 space is supported
+        return wrapper->space_type;
     }
 
     int hnswlib_get_dim(void* index_ptr) {
@@ -270,10 +283,10 @@ extern "C" {
                 result.pop();
             }
             
-            for (int i = sorted_results.size() - 1; i >= 0; i--) {
-                int idx = sorted_results.size() - 1 - i;
-                distances[idx] = sorted_results[i].first;
-                ids[idx] = static_cast<int>(sorted_results[i].second);
+            // Fill in the results
+            for (size_t i = 0; i < sorted_results.size(); i++) {
+                ids[i] = static_cast<int>(sorted_results[i].second);
+                distances[i] = sorted_results[i].first;
             }
         } else {
             hnswlib_search_knn(index_ptr, query, ids, distances, k);

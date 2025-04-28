@@ -2,10 +2,19 @@
 #define HNSWLIB_WRAPPER_H
 
 #include <stdint.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/**
+ * Space type for HNSW index
+ */
+typedef enum {
+    HNSW_SPACE_L2 = 0,
+    HNSW_SPACE_COSINE = 1
+} HNSWSpaceType;
 
 /**
  * Creates a new HNSW index with the specified parameters.
@@ -14,9 +23,10 @@ extern "C" {
  * @param max_elements The maximum number of elements that can be stored in the index
  * @param M The maximum number of outgoing connections in the graph
  * @param ef_construction The construction time/accuracy trade-off parameter
+ * @param space_type The space type to use for distance calculations
  * @return A pointer to the created index
  */
-void* hnswlib_create_index(int dim, int max_elements, int M, int ef_construction);
+void* hnswlib_create_index(int dim, int max_elements, int M, int ef_construction, HNSWSpaceType space_type);
 
 /**
  * Frees the memory allocated for an HNSW index.
@@ -212,6 +222,14 @@ void hnswlib_set_metadata(void* index_ptr, int id, const char* metadata);
  * @param id The ID of the vector
  */
 void hnswlib_remove_metadata(void* index_ptr, int id);
+
+/**
+ * Gets the space type of the index.
+ * 
+ * @param index_ptr Pointer to the index
+ * @return The space type of the index
+ */
+HNSWSpaceType hnswlib_get_space_type(void* index_ptr);
 
 #ifdef __cplusplus
 }

@@ -1,5 +1,5 @@
 module CHNSWLib {
-    header "hnswlib_wrapper.h"
+    header "include/hnswlib_wrapper.h"
     export *
     link "c++"
 } 

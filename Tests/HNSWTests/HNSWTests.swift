@@ -139,7 +139,7 @@ struct IndexTests {
             maxResults: fruityWords.count
         )
 
-        let foundWords = Set(results.map { words[$0.id] })
+        let foundWords = Set(results.map { words[Int($0.id)] })
         #expect(foundWords == Set(fruityWords))
     }
     

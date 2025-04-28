@@ -23,23 +23,26 @@ public final class HNSWIndex {
     ///   - maxElements: The maximum number of elements that can be stored in the index
     ///   - M: The maximum number of outgoing connections in the graph (default: 16)
     ///   - efConstruction: The construction time/accuracy trade-off parameter (default: 200)
+    ///   - space: The space type to use for distance calculations (default: .l2)
     public init(
         dimension: Int,
         maxElements: Int,
         M: Int = 16,
-        efConstruction: Int = 200
+        efConstruction: Int = 200,
+        space: HNSWSpaceType = .l2
     ) {
         self.index = hnswlib_create_index(
             Int32(dimension),
             Int32(maxElements),
             Int32(M),
-            Int32(efConstruction)
+            Int32(efConstruction),
+            space.cValue
         )
     }
 
-    /// The name of the space (currently only "l2" is supported)
-    public var space: String {
-        String(cString: hnswlib_get_space(self.index))
+    /// The  space type of the index (currently supports "l2" and "cosine")
+    public var space: HNSWSpaceType {
+        HNSWSpaceType(cValue: hnswlib_get_space_type(self.index))
     }
 
     /// The dimensionality of the space
@@ -71,21 +74,23 @@ public final class HNSWIndex {
     /// - Parameters:
     ///   - query: The query vector (array of floats)
     ///   - maxResults: The maximum number of nearest neighbors to find
-    ///   - filter: Optional closure that takes a metadata string and returns true if the vector should be included in results
     /// - Returns: An array of tuples containing the IDs and distances of the k nearest neighbors
     /// - Throws: An error if the query vector dimension doesn't match the index dimension
     public func searchKnn(
         _ query: [Float],
         maxResults: Int
-    ) throws(HNSWError) -> [(id: Int, distance: Float)] {
+    ) throws(HNSWError) -> [HNSWSearchResult] {
         guard query.count == self.dimension else {
             throw HNSWError.vectorMismatch(expected: self.dimension, actual: query.count)
         }
 
+        // Normalize query vector if using cosine similarity space
+        let normalizedQuery = self.space == .cosine ? normalize(query) : query
+
         var ids = [Int32](repeating: -1, count: maxResults)
         var distances = [Float](repeating: 0, count: maxResults)
 
-        query.withUnsafeBufferPointer { ptr in
+        normalizedQuery.withUnsafeBufferPointer { ptr in
             hnswlib_search_knn(self.index, ptr.baseAddress, &ids, &distances, Int32(maxResults))
         }
 
@@ -96,9 +101,9 @@ public final class HNSWIndex {
 
         return zip(ids, distances)
             .prefix(maxResults - missing)
-            .map { (Int($0), $1) }
+            .map { HNSWSearchResult(id: $0, distance: $1) }
     }
-
+    
     /// Searches for k nearest neighbors of a query vector with metadata filtering.
     /// Note: This method is not thread-safe. Do not use it concurrently from multiple threads.
     /// - Parameters:
@@ -148,7 +153,10 @@ public final class HNSWIndex {
             throw HNSWError.vectorMismatch(expected: self.dimension, actual: vector.count)
         }
 
-        try vector.withUnsafeBufferPointer { ptr in
+        // Normalize vector if using cosine similarity space
+        let normalizedVector = self.space == .cosine ? normalize(vector) : vector
+
+        try normalizedVector.withUnsafeBufferPointer { ptr in
             let result: Int32
             if let metadata = metadata {
                 result = hnswlib_add_point_with_metadata(self.index, ptr.baseAddress, id, metadata)
@@ -268,7 +276,7 @@ public final class HNSWIndex {
     /// - Parameter path: The path where to save the index
     /// - Throws: An error if the file cannot be written
     public func saveIndex(to path: String) throws {
-        let result = hnswlib_save_index(index, path)
+        let result = hnswlib_save_index(self.index, path)
         guard result == 0 else {
             throw HNSWError.generalError(message: "Failed to save index")
         }
@@ -280,9 +288,77 @@ public final class HNSWIndex {
     ///   - maxElements: The maximum number of elements that can be stored in the index
     /// - Throws: An error if the file cannot be read
     public func loadIndex(from path: String, maxElements: Int) throws {
-        let result = hnswlib_load_index(index, path, Int32(maxElements))
+        // Store space information before loading
+        let spaceType = self.space
+        
+        // Try loading with original maxElements
+        let result = hnswlib_load_index(self.index, path, Int32(maxElements))
         guard result == 0 else {
             throw HNSWError.generalError(message: "Failed to load index")
         }
+        
+        // Verify space after loading
+        guard self.space == spaceType else {
+            throw NSError(domain: "HNSWIndex", code: -1, userInfo: [
+                NSLocalizedDescriptionKey: "Space type changed during load: was \(spaceType), now \(self.space)"
+            ])
+        }
+    }
+
+    /// Normalizes a vector to unit length.
+    /// - Parameter vector: The vector to normalize
+    /// - Returns: The normalized vector
+    private func normalize(_ vector: [Float]) -> [Float] {
+        let magnitude = sqrt(vector.reduce(0) { $0 + $1 * $1 })
+        guard magnitude > 0 else { return vector }
+        return vector.map { $0 / magnitude }
+    }
+}
+
+
+extension HNSWIndex {
+    /// Gets the decoded JSON metadata associated with a vector ID.
+    /// - Parameter id: The ID of the vector
+    /// - Returns: The metadata string, or nil if no metadata exists
+    public func getJSONMetadata<T: Decodable>(
+        for id: Int32,
+        as type: T.Type,
+        decoder: JSONDecoder = JSONDecoder()
+    ) throws -> T? {
+        guard let rawMetadata = self.getMetadata(for: id)?.data(using: .utf8) else {
+            return nil
+        }
+        
+        return try decoder.decode(T.self, from: rawMetadata)
+    }
+
+
+    /// Gets the decoded JSON metadata associated with a vector ID.
+    /// - Parameter id: The ID of the vector
+    /// - Returns: The metadata string, or nil if no metadata exists
+    public func setJSONMetadata<T: Encodable>(
+        _ metadata: T,
+        for id: Int32,
+        encoder: JSONEncoder = JSONEncoder()
+    ) throws {
+        let rawMetadata = try encoder.encode(metadata)
+        self.setMetadata(String(data: rawMetadata, encoding: .utf8)!, for: id)
+    }
+
+    
+    /// Adds a vector to the index with the specified ID and metadata.
+    /// - Parameters:
+    ///   - vector: The vector to add (array of floats)
+    ///   - id: The integer ID to associate with the vector
+    ///   - metadata: Optional metadata string to associate with the vector
+    /// - Throws: An error if the vector dimension doesn't match the index dimension or if the add operation fails
+    public func addPoint<T: Encodable>(
+        _ vector: [Float],
+        id: Int32,
+        jsonMetadata: T,
+        encoder: JSONEncoder = JSONEncoder()
+    ) throws {
+        let rawMetadata = try encoder.encode(jsonMetadata)
+        try self.addPoint(vector, id: id, metadata: String(data: rawMetadata, encoding: .utf8)!)
     }
 }

@@ -13,11 +13,11 @@ let package = Package(
         ),
     ],
     targets: [
+        // C++ interop target (for HNSW)
         .target(
             name: "CHNSWLib",
             path: "Sources/CHNSWLib",
             exclude: [],
-//            sources: ["hnswlib_wrapper.cpp"],
             publicHeadersPath: "include",
             cxxSettings: [
                 .headerSearchPath("../../hnswlib"),
@@ -28,7 +28,6 @@ let package = Package(
             name: "HNSW",
             dependencies: ["CHNSWLib"],
             swiftSettings: [
-                .interoperabilityMode(.Cxx),
                 .enableExperimentalFeature("StrictConcurrency")
             ]
         ),
