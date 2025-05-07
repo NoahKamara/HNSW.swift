@@ -7,7 +7,7 @@
 
 import CHNSWLib
 
-public enum HNSWSpaceType: CustomStringConvertible {
+public enum HNSWSpaceType: Sendable, CustomStringConvertible {
     case l2
     case cosine
     

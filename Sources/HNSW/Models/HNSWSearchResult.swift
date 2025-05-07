@@ -6,7 +6,8 @@
 //
 
 public struct HNSWSearchResult: Sendable {
-    public let id: Int32
+    public typealias ID = Int32
+    public let id: ID
     public let distance: Float
 }
 
