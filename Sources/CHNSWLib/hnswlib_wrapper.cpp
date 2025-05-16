@@ -7,6 +7,7 @@
 #include <string>
 #include <functional>
 #include <cstring>
+#include <fstream>
 
 struct HNSWIndexWrapper {
     hnswlib::HierarchicalNSW<float>* index;
@@ -36,6 +37,57 @@ public:
         return wrapper->filter_func ? wrapper->filter_func(it->second.c_str()) : true;
     }
 };
+
+// Add these functions before the extern "C" block
+void saveMetadata(const std::unordered_map<int, std::string>& metadata, const std::string& path) {
+    std::string metadataPath = path + ".metadata";
+    std::ofstream file(metadataPath, std::ios::binary);
+    if (!file) {
+        throw std::runtime_error("Failed to open metadata file for writing");
+    }
+    
+    // Write number of entries
+    size_t size = metadata.size();
+    file.write(reinterpret_cast<const char*>(&size), sizeof(size));
+    
+    // Write each entry
+    for (const auto& pair : metadata) {
+        // Write ID
+        file.write(reinterpret_cast<const char*>(&pair.first), sizeof(pair.first));
+        
+        // Write string length and content
+        size_t strLen = pair.second.length();
+        file.write(reinterpret_cast<const char*>(&strLen), sizeof(strLen));
+        file.write(pair.second.c_str(), strLen);
+    }
+}
+
+void loadMetadata(std::unordered_map<int, std::string>& metadata, const std::string& path) {
+    std::string metadataPath = path + ".metadata";
+    std::ifstream file(metadataPath, std::ios::binary);
+    if (!file) {
+        return; // No metadata file exists, that's okay
+    }
+    
+    // Read number of entries
+    size_t size;
+    file.read(reinterpret_cast<char*>(&size), sizeof(size));
+    
+    // Read each entry
+    for (size_t i = 0; i < size; i++) {
+        // Read ID
+        int id;
+        file.read(reinterpret_cast<char*>(&id), sizeof(id));
+        
+        // Read string length and content
+        size_t strLen;
+        file.read(reinterpret_cast<char*>(&strLen), sizeof(strLen));
+        std::string str(strLen, '\0');
+        file.read(&str[0], strLen);
+        
+        metadata[id] = str;
+    }
+}
 
 extern "C" {
     using namespace hnswlib;
@@ -169,6 +221,7 @@ extern "C" {
         try {
             auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
             wrapper->index->saveIndex(path);
+            saveMetadata(wrapper->metadata, path);
             return 0;
         } catch (...) {
             return -1;
@@ -178,7 +231,8 @@ extern "C" {
     int hnswlib_load_index(void* index_ptr, const char* path, int max_elements) {
         try {
             auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
-            wrapper->index->loadIndex(path, wrapper->space, max_elements);  // Use the stored space interface
+            wrapper->index->loadIndex(path, wrapper->space, max_elements);
+            loadMetadata(wrapper->metadata, path);
             return 0;
         } catch (...) {
             return -1;
