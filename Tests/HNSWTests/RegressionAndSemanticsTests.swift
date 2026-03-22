@@ -200,7 +200,7 @@ struct HNSWContainerTests {
         try await container.perform { idx in
             try idx.addPoint([1, 0], id: 0)
         }
-        let count = try await container.perform { $0.elementCount }
+        let count = await container.perform { $0.elementCount }
         #expect(count == 1)
     }
 
@@ -209,9 +209,9 @@ struct HNSWContainerTests {
         let container = HNSWContainer(dimension: 2, maxElements: 4)
         try await container.perform { try $0.addPoint([1, 0], id: 0) }
         await container.reset()
-        let count = try await container.perform { $0.elementCount }
+        let count = await container.perform { $0.elementCount }
         #expect(count == 0)
-        let maxEl = try await container.perform { $0.maxElements }
+        let maxEl = await container.perform { $0.maxElements }
         #expect(maxEl == 4)
     }
 }

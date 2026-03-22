@@ -35,29 +35,18 @@ public actor HNSWContainer {
         )
     }
     
-    /// Perform an action on the ``HNSWIndex`` and return its result, ensuring async and safe execution within the actor.
+    /// Perform an action on the ``HNSWIndex`` and return its result on the actor executor.
     public func perform<R: Sendable>(
         _ action: @Sendable (HNSWIndex) throws -> R
-    ) async throws -> R {
-        try await withCheckedThrowingContinuation { continuation in
-            do {
-                // Perform the action synchronously on the actor's state
-                let result = try action(self.index)
-                continuation.resume(returning: result)
-            } catch {
-                continuation.resume(throwing: error)
-            }
-        }
+    ) throws -> R {
+        try action(self.index)
     }
-    
-    /// Perform an action on the ``HNSWIndex`` and return its result, ensuring async and safe execution within the actor.
+
+    /// Perform an action on the ``HNSWIndex`` and return its result on the actor executor.
     public func perform<R: Sendable>(
         _ action: @Sendable (HNSWIndex) -> R
-    ) async throws -> R {
-        await withCheckedContinuation { continuation in
-            let result = action(self.index)
-            continuation.resume(returning: result)
-        }
+    ) -> R {
+        action(self.index)
     }
     
     /// Drops the current index and initializes a new one with the same configuration
