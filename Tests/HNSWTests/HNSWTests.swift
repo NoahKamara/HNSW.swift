@@ -49,7 +49,8 @@ struct IndexTests {
         try index.addPoint(vector, id: 0, metadata: metadata)
 
         // Get metadata
-        let retrievedMetadata = try #require(index.getMetadata(for: 0))
+        let retrievedOptional = try index.getMetadata(for: 0)
+        let retrievedMetadata = try #require(retrievedOptional)
         #expect(retrievedMetadata == metadata)
 
         // Update metadata
@@ -60,13 +61,14 @@ struct IndexTests {
             "tags": ["important", "reference", "updated"]
         }
         """
-        index.setMetadata(updatedMetadata, for: 0)
-        let updatedRetrievedMetadata = try #require(index.getMetadata(for: 0))
+        try index.setMetadata(updatedMetadata, for: 0)
+        let updatedOptional = try index.getMetadata(for: 0)
+        let updatedRetrievedMetadata = try #require(updatedOptional)
         #expect(updatedRetrievedMetadata == updatedMetadata)
 
         // Remove metadata
-        index.removeMetadata(for: 0)
-        #expect(index.getMetadata(for: 0) == nil)
+        try index.removeMetadata(for: 0)
+        #expect(try index.getMetadata(for: 0) == nil)
     }
     
     @Test
@@ -158,7 +160,7 @@ struct IndexTests {
                 "word": "\(word)"
             }
             """
-            index.setMetadata(metadata, for: Int32(i))
+            try index.setMetadata(metadata, for: Int32(i))
         }
 
         // Test nearest neighbor search with category filter

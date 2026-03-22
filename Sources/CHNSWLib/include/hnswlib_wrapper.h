@@ -62,6 +62,8 @@ void hnswlib_search_knn(void* index_ptr, const float* query, int* ids, float* di
 
 /**
  * Per-query metadata filter. @p metadataOrNull is NULL when the label has no stored metadata.
+ * The callback alone decides inclusion; NULL is passed through to the callback and is not rejected
+ * before the callback runs.
  */
 typedef bool (*HNSWMetadataFilterFn)(void* userData, const char* metadataOrNull);
 

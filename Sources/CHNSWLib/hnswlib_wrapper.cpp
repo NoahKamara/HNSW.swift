@@ -39,7 +39,10 @@ struct TransientFilterGuard {
 
 }  // namespace
 
-// Custom filter functor that checks metadata
+// Invokes the per-query or legacy filter with stored metadata, or nullptr when this label has no
+// metadata row—same as Swift’s `searchKnn(..., filter:)` passing `nil`. Inclusion is decided only
+// by the callback (not implicitly excluded), matching post-filtering an unfiltered search using
+// stored metadata per id.
 class MetadataFilterFunctor : public hnswlib::BaseFilterFunctor {
 private:
     HNSWIndexWrapper* wrapper;
@@ -50,17 +53,18 @@ public:
     bool operator()(hnswlib::labeltype id) override {
         if (id < 0) return false;
 
-        const char* meta = nullptr;
+        const char* metadataForCallback = nullptr;
         auto it = wrapper->metadata.find(static_cast<int>(id));
         if (it != wrapper->metadata.end()) {
-            meta = it->second.c_str();
+            metadataForCallback = it->second.c_str();
         }
 
         if (wrapper->transient_filter_fn != nullptr) {
-            return wrapper->transient_filter_fn(wrapper->transient_filter_user_data, meta);
+            return wrapper->transient_filter_fn(
+                wrapper->transient_filter_user_data, metadataForCallback);
         }
         if (wrapper->filter_func != nullptr) {
-            return wrapper->filter_func(meta);
+            return wrapper->filter_func(metadataForCallback);
         }
         return true;
     }

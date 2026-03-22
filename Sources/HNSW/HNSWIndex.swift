@@ -62,7 +62,7 @@ public final class HNSWIndex {
         )
     }
 
-    /// The  space type of the index (currently supports "l2" and "cosine")
+    /// The space type of the index (currently supports "l2" and "cosine")
     public var space: HNSWSpaceType {
         HNSWSpaceType(cValue: hnswlib_get_space_type(self.index))
     }
@@ -90,6 +90,13 @@ public final class HNSWIndex {
     /// The current number of elements in the index
     public var elementCount: Int {
         Int(hnswlib_get_current_count(self.index))
+    }
+
+    /// Rejects negative labels before calling into hnswlib (native code uses unsigned labels and only checks `id >= max_elements`).
+    private func requireValidLabelID(_ id: Int32) throws(HNSWError) {
+        guard id >= 0 else {
+            throw HNSWError.invalidLabel(id: Int(id))
+        }
     }
 
     /// Searches for k nearest neighbors of a query vector.
@@ -136,7 +143,9 @@ public final class HNSWIndex {
     /// - Parameters:
     ///   - query: The query vector (array of floats)
     ///   - maxResults: The maximum number of nearest neighbors to find (`k`)
-    ///   - filter: Receives the stored metadata string, or `nil` when none is stored; return `true` to allow the label
+    ///   - filter: Receives the stored metadata string, or `nil` when none is stored; `nil` is not
+    ///     implicitly excluded—the predicate decides, same as filtering an unfiltered search using
+    ///     ``getMetadata(for:)``. Return `true` to allow the label.
     /// - Returns: IDs and distances of neighbors that pass the filter, ordered by increasing distance (best match first); fewer than `k` when fewer than `k` matches exist.
     /// - Throws: An error if the query vector dimension doesn't match the index dimension
     public func searchKnn(
@@ -182,13 +191,14 @@ public final class HNSWIndex {
     /// Adds a vector to the index with the specified ID and metadata.
     /// - Parameters:
     ///   - vector: The vector to add (array of floats)
-    ///   - id: The integer ID to associate with the vector
+    ///   - id: Non-negative integer ID to associate with the vector (hnswlib stores labels as unsigned).
     ///   - metadata: Optional metadata string to associate with the vector
     /// - Throws: An error if the vector dimension doesn't match the index dimension or if the add operation fails
     public func addPoint(_ vector: [Float], id: Int32, metadata: String? = nil) throws {
         guard vector.count == self.dimension else {
             throw HNSWError.vectorMismatch(expected: self.dimension, actual: vector.count)
         }
+        try self.requireValidLabelID(id)
 
         // Normalize vector if using cosine similarity space
         let normalizedVector = self.space == .cosine ? normalize(vector) : vector
@@ -219,9 +229,11 @@ public final class HNSWIndex {
     }
 
     /// Gets the metadata associated with a vector ID.
-    /// - Parameter id: The ID of the vector
+    /// - Parameter id: Non-negative label ID
     /// - Returns: The metadata string, or nil if no metadata exists
-    public func getMetadata(for id: Int32) -> String? {
+    /// - Throws: ``HNSWError/invalidLabel(id:)`` if `id` is negative
+    public func getMetadata(for id: Int32) throws(HNSWError) -> String? {
+        try self.requireValidLabelID(id)
         guard let metadata = hnswlib_get_metadata(self.index, id) else {
             return nil
         }
@@ -231,21 +243,26 @@ public final class HNSWIndex {
     /// Sets or updates the metadata for a vector ID.
     /// - Parameters:
     ///   - metadata: The metadata string to associate with the vector
-    ///   - id: The ID of the vector
-    public func setMetadata(_ metadata: String?, for id: Int32) {
+    ///   - id: Non-negative label ID
+    /// - Throws: ``HNSWError/invalidLabel(id:)`` if `id` is negative
+    public func setMetadata(_ metadata: String?, for id: Int32) throws(HNSWError) {
+        try self.requireValidLabelID(id)
         hnswlib_set_metadata(self.index, id, metadata)
     }
 
     /// Removes the metadata associated with a vector ID.
-    /// - Parameter id: The ID of the vector
-    public func removeMetadata(for id: Int32) {
+    /// - Parameter id: Non-negative label ID
+    /// - Throws: ``HNSWError/invalidLabel(id:)`` if `id` is negative
+    public func removeMetadata(for id: Int32) throws(HNSWError) {
+        try self.requireValidLabelID(id)
         hnswlib_remove_metadata(self.index, id)
     }
 
     /// Marks an element as deleted, so it will be omitted from search results.
-    /// - Parameter id: The ID of the element to mark as deleted
+    /// - Parameter id: Non-negative label ID
     /// - Throws: An error if the element is already deleted
     public func markDeleted(_ id: Int32) throws(HNSWError) {
+        try self.requireValidLabelID(id)
         let result = hnswlib_mark_deleted(index, id)
         guard result == 0 else {
             throw HNSWError.generalError(message: "Failed to mark element as deleted")
@@ -253,9 +270,10 @@ public final class HNSWIndex {
     }
 
     /// Unmarks an element as deleted, so it will be included in search results.
-    /// - Parameter id: The ID of the element to unmark
+    /// - Parameter id: Non-negative label ID
     /// - Throws: An error if the element is not deleted
     public func unmarkDeleted(_ id: Int32) throws(HNSWError) {
+        try self.requireValidLabelID(id)
         let result = hnswlib_unmark_deleted(index, id)
         guard result == 0 else {
             throw HNSWError.generalError(message: "Failed to unmark element")
@@ -355,7 +373,7 @@ extension HNSWIndex {
         as type: T.Type,
         decoder: JSONDecoder = JSONDecoder()
     ) throws -> T? {
-        guard let rawMetadata = self.getMetadata(for: id)?.data(using: .utf8) else {
+        guard let rawMetadata = try self.getMetadata(for: id)?.data(using: .utf8) else {
             return nil
         }
         
@@ -372,7 +390,7 @@ extension HNSWIndex {
         encoder: JSONEncoder = JSONEncoder()
     ) throws {
         let rawMetadata = try encoder.encode(metadata)
-        self.setMetadata(try utf8String(from: rawMetadata), for: id)
+        try self.setMetadata(try utf8String(from: rawMetadata), for: id)
     }
 
     

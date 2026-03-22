@@ -59,6 +59,19 @@ struct SearchSemanticsTests {
         let f = try index.searchKnn(query, maxResults: 2) { _ in true }
         assertSameSearchOrder(u, f)
     }
+
+    /// Labels without stored metadata receive `nil` in the filter closure; they are not skipped
+    /// before the predicate runs (same idea as post-filtering an unfiltered search with ``getMetadata(for:)``).
+    @Test
+    func filteredSearchIncludesNoMetadataLabelsWhenPredicateAcceptsNil() throws {
+        let index = HNSWIndex(dimension: 2, maxElements: 8, M: 8, efConstruction: 40)
+        try index.addPoint([0, 0], id: 0)
+        try index.addPoint([1, 0], id: 1, metadata: "tagged")
+        index.setEf(32)
+        let hits = try index.searchKnn([0, 0], maxResults: 2) { $0 == nil }
+        #expect(hits.count == 1)
+        #expect(hits[0].id == 0)
+    }
 }
 
 @Suite("Filtered search limits")
@@ -95,8 +108,8 @@ struct PersistenceTests {
             let loaded = HNSWIndex(dimension: dim, maxElements: 10)
             try loaded.loadIndex(from: url.path, maxElements: 10)
             #expect(loaded.elementCount == 2)
-            #expect(loaded.getMetadata(for: 0) == "alpha")
-            #expect(loaded.getMetadata(for: 1) == "beta")
+            #expect(try loaded.getMetadata(for: 0) == "alpha")
+            #expect(try loaded.getMetadata(for: 1) == "beta")
 
             let q = [Float]([0.9, 0.1, 0])
             let hits = try loaded.searchKnn(q, maxResults: 2)
@@ -130,8 +143,8 @@ struct PersistenceTests {
 
             try full.loadIndex(from: partialURL.path, maxElements: 10)
             #expect(full.elementCount == 1)
-            #expect(full.getMetadata(for: 0) == "from-partial-0")
-            #expect(full.getMetadata(for: 1) == nil)
+            #expect(try full.getMetadata(for: 0) == "from-partial-0")
+            #expect(try full.getMetadata(for: 1) == nil)
         }
     }
 
@@ -170,6 +183,14 @@ struct AddAndErrorTests {
         let index = HNSWIndex(dimension: 2, maxElements: 2)
         #expect(throws: HNSWError.self) {
             try index.addPoint([0, 1], id: 2)
+        }
+    }
+
+    @Test
+    func negativeLabelIdThrowsInvalidLabel() throws {
+        let index = HNSWIndex(dimension: 2, maxElements: 10)
+        #expect(throws: HNSWError.invalidLabel(id: -1)) {
+            try index.addPoint([0, 1], id: -1)
         }
     }
 }
