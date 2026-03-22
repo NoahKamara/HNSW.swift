@@ -7,6 +7,28 @@
 import CHNSWLib
 import Foundation
 
+private final class MetadataFilterBox {
+    let predicate: (String?) -> Bool
+
+    init(_ predicate: @escaping (String?) -> Bool) {
+        self.predicate = predicate
+    }
+}
+
+private func hnswMetadataFilterTrampoline(
+    _ userData: UnsafeMutableRawPointer?,
+    _ metadataOrNull: UnsafePointer<CChar>?
+) -> Bool {
+    let box = Unmanaged<MetadataFilterBox>.fromOpaque(userData!).takeUnretainedValue()
+    let metadata: String?
+    if let metadataOrNull {
+        metadata = String(cString: metadataOrNull)
+    } else {
+        metadata = nil
+    }
+    return box.predicate(metadata)
+}
+
 /// A Swift wrapper for the HNSW (Hierarchical Navigable Small World) index.
 /// HNSW is an efficient approximate nearest neighbor search algorithm that uses a hierarchical
 /// graph structure.
@@ -104,13 +126,18 @@ public final class HNSWIndex {
             .map { HNSWSearchResult(id: $0, distance: $1) }
     }
     
-    /// Searches for k nearest neighbors of a query vector with metadata filtering.
-    /// Note: This method is not thread-safe. Do not use it concurrently from multiple threads.
+    /// Searches for up to `k` nearest neighbors among labels that pass `filter`, using hnswlib’s
+    /// filtered graph search (not “take `k` unfiltered then drop”).
+    ///
+    /// For highly selective filters, increase the query-time `ef` parameter via ``setEf(_:)`` so
+    /// the search explores enough candidates to fill `k` results when that many matches exist.
+    ///
+    /// This method is not thread-safe: do not call it concurrently on the same index instance.
     /// - Parameters:
     ///   - query: The query vector (array of floats)
-    ///   - maxResults: The maximum number of nearest neighbors to find
-    ///   - filter: A closure that takes a metadata string and returns true if the vector should be included in results
-    /// - Returns: An array of tuples containing the IDs and distances of the k nearest neighbors
+    ///   - maxResults: The maximum number of nearest neighbors to find (`k`)
+    ///   - filter: Receives the stored metadata string, or `nil` when none is stored; return `true` to allow the label
+    /// - Returns: IDs and distances of the nearest neighbors that pass the filter (fewer than `k` if fewer than `k` matches exist)
     /// - Throws: An error if the query vector dimension doesn't match the index dimension
     public func searchKnn(
         _ query: [Float],
@@ -126,22 +153,30 @@ public final class HNSWIndex {
         var ids = [Int32](repeating: -1, count: maxResults)
         var distances = [Float](repeating: 0, count: maxResults)
 
-        // Get all results first
+        let box = MetadataFilterBox(filter)
+        let userData = Unmanaged.passRetained(box).toOpaque()
+        defer { Unmanaged<MetadataFilterBox>.fromOpaque(userData).release() }
+
         normalizedQuery.withUnsafeBufferPointer { ptr in
-            hnswlib_search_knn(self.index, ptr.baseAddress, &ids, &distances, Int32(maxResults))
+            hnswlib_search_knn_with_metadata_filter(
+                self.index,
+                ptr.baseAddress,
+                &ids,
+                &distances,
+                Int32(maxResults),
+                userData,
+                hnswMetadataFilterTrampoline
+            )
         }
 
-        // Filter results based on metadata
-        var filteredResults: [(id: Int, distance: Float)] = []
-        for (id, distance) in zip(ids, distances) {
-            guard id != -1 else { continue }
-            let metadata = getMetadata(for: id)
-            if filter(metadata) {
-                filteredResults.append((Int(id), distance))
-            }
-        }
+        let missing = ids
+            .reversed()
+            .prefix(while: { $0 == -1 })
+            .count
 
-        return filteredResults
+        return zip(ids, distances)
+            .prefix(maxResults - missing)
+            .map { (id: Int($0), distance: $1) }
     }
 
     /// Adds a vector to the index with the specified ID and metadata.

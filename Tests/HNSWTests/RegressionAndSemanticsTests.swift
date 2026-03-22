@@ -2,7 +2,7 @@
 //  RegressionAndSemanticsTests.swift
 //
 //  Covers behaviors that are easy to regress: cosine/query handling, result ordering,
-//  persistence + metadata, post-filter k deficiency, and edge cases.
+//  persistence + metadata, filtered k-NN semantics, and edge cases.
 //
 
 import Foundation
@@ -61,9 +61,9 @@ struct SearchSemanticsTests {
     }
 }
 
-@Suite("Post-filter search limits")
-struct PostFilterSearchTests {
-    /// Post-filtering a fixed k-NN list cannot return k matches if fewer than k graph neighbors pass the filter.
+@Suite("Filtered search limits")
+struct FilteredSearchLimitsTests {
+    /// Fewer than `maxResults` hits when fewer than that many labels satisfy the filter (only one point is tagged).
     @Test
     func selectiveMetadataFilterMayReturnFewerThanMaxResults() throws {
         let index = HNSWIndex(dimension: 2, maxElements: 64, M: 8, efConstruction: 80)
