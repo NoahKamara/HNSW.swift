@@ -234,6 +234,37 @@ struct IndexTests {
         #expect(filteredIds.allSatisfy { $0 >= rejectCount })
     }
 
+    /// Same geometry as ``searchKnnFilteredReturnsKWhenMatchesExistBeyondUnfilteredTopK``, but filtering by label id only (no metadata in the predicate).
+    @Test
+    func searchKnnLabelFilterReturnsKWhenMatchesExistBeyondUnfilteredTopK() async throws {
+        let rejectCount = 25
+        let acceptCount = 5
+        let k = acceptCount
+        let maxElements = rejectCount + acceptCount
+        let index = HNSWIndex(dimension: 2, maxElements: maxElements, M: 16, efConstruction: 200, space: .l2)
+        index.setEf(Int32(max(128, maxElements * 4)))
+
+        for i in 0..<rejectCount {
+            let x = Float(i + 1) * 1e-5
+            try index.addPoint([x, 0], id: Int32(i))
+        }
+        for j in 0..<acceptCount {
+            let id = rejectCount + j
+            let x = 10 + Float(j)
+            try index.addPoint([x, 0], id: Int32(id))
+        }
+
+        let query: [Float] = [0, 0]
+        let unfilteredTopK = try index.searchKnn(query, maxResults: k)
+        #expect(unfilteredTopK.allSatisfy { $0.id < Int32(rejectCount) })
+
+        let filtered = try index.searchKnn(query, maxResults: k, labelFilter: { id in id >= Int32(rejectCount) })
+        #expect(filtered.count == k)
+        let filteredIds = Set(filtered.map(\.id))
+        #expect(filteredIds.count == k)
+        #expect(filteredIds.allSatisfy { $0 >= Int32(rejectCount) })
+    }
+
     @Test
     func dimensionMismatchError() async throws {
         let index = HNSWIndex(dimension: 2, maxElements: 3)

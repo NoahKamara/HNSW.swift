@@ -7,22 +7,40 @@
 import CHNSWLib
 import Foundation
 
-private final class MetadataFilterBox {
-    let predicate: (String?) -> Bool
+private final class LabelFilterBox {
+    let predicate: (Int32) -> Bool
 
-    init(_ predicate: @escaping (String?) -> Bool) {
+    init(_ predicate: @escaping (Int32) -> Bool) {
         self.predicate = predicate
     }
 }
 
-private func hnswMetadataFilterTrampoline(
+private func hnswLabelFilterTrampoline(
     _ userData: UnsafeMutableRawPointer?,
-    _ metadataOrNull: UnsafePointer<CChar>?
+    _ labelId: Int32
 ) -> Bool {
-    let box = Unmanaged<MetadataFilterBox>.fromOpaque(userData!).takeUnretainedValue()
+    let box = Unmanaged<LabelFilterBox>.fromOpaque(userData!).takeUnretainedValue()
+    return box.predicate(labelId)
+}
+
+private final class MetadataStringFilterBox {
+    let index: UnsafeMutableRawPointer
+    let predicate: (String?) -> Bool
+
+    init(index: UnsafeMutableRawPointer, predicate: @escaping (String?) -> Bool) {
+        self.index = index
+        self.predicate = predicate
+    }
+}
+
+private func hnswMetadataStringFilterTrampoline(
+    _ userData: UnsafeMutableRawPointer?,
+    _ labelId: Int32
+) -> Bool {
+    let box = Unmanaged<MetadataStringFilterBox>.fromOpaque(userData!).takeUnretainedValue()
     let metadata: String?
-    if let metadataOrNull {
-        metadata = String(cString: metadataOrNull)
+    if let metaPtr = hnswlib_get_metadata(box.index, labelId) {
+        metadata = String(cString: metaPtr)
     } else {
         metadata = nil
     }
@@ -136,6 +154,65 @@ public final class HNSWIndex {
     /// Searches for up to `k` nearest neighbors among labels that pass `filter`, using hnswlib’s
     /// filtered graph search (not “take `k` unfiltered then drop”).
     ///
+    /// The predicate receives each candidate’s external label id (the same id passed to ``addPoint``).
+    /// Use this to filter against your own payload store or allowlists without storing strings in the index.
+    /// Named `labelFilter` (not `filter`) so it does not clash with ``searchKnn(_:maxResults:filter:)``’s metadata predicate.
+    /// Marked disfavored so a trailing closure without a label (e.g. `{ _ in true }`) resolves to the metadata overload when both could match.
+    ///
+    /// For highly selective filters, increase the query-time `ef` parameter via ``setEf(_:)`` so
+    /// the search explores enough candidates to fill `k` results when that many matches exist.
+    ///
+    /// This method is not thread-safe: do not call it concurrently on the same index instance.
+    /// - Parameters:
+    ///   - query: The query vector (array of floats)
+    ///   - maxResults: The maximum number of nearest neighbors to find (`k`)
+    ///   - labelFilter: Return `true` to allow the label in results.
+    /// - Returns: Neighbors that pass the filter, ordered by increasing distance (best match first); fewer than `k` when fewer than `k` matches exist.
+    /// - Throws: An error if the query vector dimension doesn't match the index dimension
+    @_disfavoredOverload
+    public func searchKnn(
+        _ query: [Float],
+        maxResults: Int,
+        labelFilter: @escaping (Int32) -> Bool
+    ) throws(HNSWError) -> [HNSWSearchResult] {
+        guard query.count == self.dimension else {
+            throw HNSWError.vectorMismatch(expected: self.dimension, actual: query.count)
+        }
+
+        let normalizedQuery = self.space == .cosine ? normalize(query) : query
+
+        var ids = [Int32](repeating: -1, count: maxResults)
+        var distances = [Float](repeating: 0, count: maxResults)
+
+        let box = LabelFilterBox(labelFilter)
+        let userData = Unmanaged.passRetained(box).toOpaque()
+        defer { Unmanaged<LabelFilterBox>.fromOpaque(userData).release() }
+
+        normalizedQuery.withUnsafeBufferPointer { ptr in
+            hnswlib_search_knn_with_label_filter(
+                self.index,
+                ptr.baseAddress,
+                &ids,
+                &distances,
+                Int32(maxResults),
+                userData,
+                hnswLabelFilterTrampoline
+            )
+        }
+
+        let missing = ids
+            .reversed()
+            .prefix(while: { $0 == -1 })
+            .count
+
+        return zip(ids, distances)
+            .prefix(maxResults - missing)
+            .map { HNSWSearchResult(id: $0, distance: $1) }
+    }
+
+    /// Searches for up to `k` nearest neighbors among labels that pass `filter`, using hnswlib’s
+    /// filtered graph search (not “take `k` unfiltered then drop”).
+    ///
     /// For highly selective filters, increase the query-time `ef` parameter via ``setEf(_:)`` so
     /// the search explores enough candidates to fill `k` results when that many matches exist.
     ///
@@ -162,19 +239,19 @@ public final class HNSWIndex {
         var ids = [Int32](repeating: -1, count: maxResults)
         var distances = [Float](repeating: 0, count: maxResults)
 
-        let box = MetadataFilterBox(filter)
+        let box = MetadataStringFilterBox(index: self.index, predicate: filter)
         let userData = Unmanaged.passRetained(box).toOpaque()
-        defer { Unmanaged<MetadataFilterBox>.fromOpaque(userData).release() }
+        defer { Unmanaged<MetadataStringFilterBox>.fromOpaque(userData).release() }
 
         normalizedQuery.withUnsafeBufferPointer { ptr in
-            hnswlib_search_knn_with_metadata_filter(
+            hnswlib_search_knn_with_label_filter(
                 self.index,
                 ptr.baseAddress,
                 &ids,
                 &distances,
                 Int32(maxResults),
                 userData,
-                hnswMetadataFilterTrampoline
+                hnswMetadataStringFilterTrampoline
             )
         }
 

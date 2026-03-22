@@ -14,59 +14,19 @@ struct HNSWIndexWrapper {
     hnswlib::SpaceInterface<float>* space;  // Store the space interface
     int dimension;
     std::unordered_map<int, std::string> metadata;  // Map of ID to metadata string
-    bool (*filter_func)(const char*);  // Legacy filter (hnswlib_set_filter)
-    void* transient_filter_user_data;
-    HNSWMetadataFilterFn transient_filter_fn;
     HNSWSpaceType space_type;  // Store the space type
 };
 
-namespace {
-
-struct TransientFilterGuard {
-    HNSWIndexWrapper* wrapper;
-
-    TransientFilterGuard(HNSWIndexWrapper* w, void* user_data, HNSWMetadataFilterFn fn)
-        : wrapper(w) {
-        wrapper->transient_filter_user_data = user_data;
-        wrapper->transient_filter_fn = fn;
-    }
-
-    ~TransientFilterGuard() {
-        wrapper->transient_filter_user_data = nullptr;
-        wrapper->transient_filter_fn = nullptr;
-    }
-};
-
-}  // namespace
-
-// Invokes the per-query or legacy filter with stored metadata, or nullptr when this label has no
-// metadata row—same as Swift’s `searchKnn(..., filter:)` passing `nil`. Inclusion is decided only
-// by the callback (not implicitly excluded), matching post-filtering an unfiltered search using
-// stored metadata per id.
-class MetadataFilterFunctor : public hnswlib::BaseFilterFunctor {
+class LabelFilterFunctor : public hnswlib::BaseFilterFunctor {
 private:
-    HNSWIndexWrapper* wrapper;
+    void* user_data;
+    HNSWLabelFilterFn c_fn;
 
 public:
-    explicit MetadataFilterFunctor(HNSWIndexWrapper* wrapper) : wrapper(wrapper) {}
+    LabelFilterFunctor(void* user_data, HNSWLabelFilterFn c_fn) : user_data(user_data), c_fn(c_fn) {}
 
     bool operator()(hnswlib::labeltype id) override {
-        if (id < 0) return false;
-
-        const char* metadataForCallback = nullptr;
-        auto it = wrapper->metadata.find(static_cast<int>(id));
-        if (it != wrapper->metadata.end()) {
-            metadataForCallback = it->second.c_str();
-        }
-
-        if (wrapper->transient_filter_fn != nullptr) {
-            return wrapper->transient_filter_fn(
-                wrapper->transient_filter_user_data, metadataForCallback);
-        }
-        if (wrapper->filter_func != nullptr) {
-            return wrapper->filter_func(metadataForCallback);
-        }
-        return true;
+        return c_fn(user_data, static_cast<int32_t>(id));
     }
 };
 
@@ -150,8 +110,7 @@ extern "C" {
         }
         
         hnswlib::HierarchicalNSW<float>* index = new hnswlib::HierarchicalNSW<float>(space, max_elements, M, ef_construction);
-        HNSWIndexWrapper* wrapper = new HNSWIndexWrapper{
-            index, space, dim, {}, nullptr, nullptr, nullptr, space_type};
+        HNSWIndexWrapper* wrapper = new HNSWIndexWrapper{index, space, dim, {}, space_type};
         return static_cast<void*>(wrapper);
     }
     
@@ -253,18 +212,16 @@ extern "C" {
         fillNearestFirst(sorted_results, ids, distances);
     }
 
-    void hnswlib_search_knn_with_metadata_filter(
+    void hnswlib_search_knn_with_label_filter(
         void* index_ptr,
         const float* query,
         int* ids,
         float* distances,
         int k,
         void* user_data,
-        HNSWMetadataFilterFn filter_fn) {
+        HNSWLabelFilterFn filter_fn) {
         auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
-        TransientFilterGuard guard(wrapper, user_data, filter_fn);
-
-        MetadataFilterFunctor filter(wrapper);
+        LabelFilterFunctor filter(user_data, filter_fn);
         std::priority_queue<std::pair<float, labeltype>> result =
             wrapper->index->searchKnn(query, static_cast<size_t>(k), &filter);
 
@@ -390,27 +347,4 @@ extern "C" {
         return wrapper->index->cur_element_count;
     }
 
-    void hnswlib_set_filter(void* index_ptr, bool (*filter_func)(const char*)) {
-        auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
-        wrapper->filter_func = filter_func;
-    }
-
-    void hnswlib_search_knn_with_filter(void* index_ptr, const float* query, int* ids, float* distances, int k) {
-        auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
-        
-        if (wrapper->filter_func) {
-            MetadataFilterFunctor filter(wrapper);
-            std::priority_queue<std::pair<float, labeltype>> result = wrapper->index->searchKnn(query, k, &filter);
-            
-            std::vector<std::pair<float, labeltype>> sorted_results;
-            while (!result.empty()) {
-                sorted_results.push_back(result.top());
-                result.pop();
-            }
-
-            fillNearestFirst(sorted_results, ids, distances);
-        } else {
-            hnswlib_search_knn(index_ptr, query, ids, distances, k);
-        }
-    }
 } 

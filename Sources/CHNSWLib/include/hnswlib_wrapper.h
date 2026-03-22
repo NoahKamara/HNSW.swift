@@ -61,11 +61,10 @@ int hnswlib_add_point(void* index_ptr, const float* vector, int id);
 void hnswlib_search_knn(void* index_ptr, const float* query, int* ids, float* distances, int k);
 
 /**
- * Per-query metadata filter. @p metadataOrNull is NULL when the label has no stored metadata.
- * The callback alone decides inclusion; NULL is passed through to the callback and is not rejected
- * before the callback runs.
+ * Per-query label filter. @p labelId is the external label (the same integer id used with add_point).
+ * Called during the graph walk for each candidate; return true to allow the label in results.
  */
-typedef bool (*HNSWMetadataFilterFn)(void* userData, const char* metadataOrNull);
+typedef bool (*HNSWLabelFilterFn)(void* userData, int32_t labelId);
 
 /**
  * Searches for k nearest neighbors whose labels pass the filter, evaluated during the graph walk.
@@ -76,33 +75,14 @@ typedef bool (*HNSWMetadataFilterFn)(void* userData, const char* metadataOrNull)
  * @param userData Opaque pointer passed to @p filterFn
  * @param filterFn Called for each candidate label; must not be NULL
  */
-void hnswlib_search_knn_with_metadata_filter(
+void hnswlib_search_knn_with_label_filter(
     void* index_ptr,
     const float* query,
     int* ids,
     float* distances,
     int k,
     void* userData,
-    HNSWMetadataFilterFn filterFn);
-
-/**
- * Sets the current filter function for the index.
- * 
- * @param index_ptr Pointer to the index
- * @param filter_func A function that takes a metadata string or NULL (no metadata) and returns true if the vector should be included in results
- */
-void hnswlib_set_filter(void* index_ptr, bool (*filter_func)(const char*));
-
-/**
- * Searches for k nearest neighbors of a query vector with the current filter.
- * 
- * @param index_ptr Pointer to the index
- * @param query The query vector
- * @param ids Array to store the IDs of the nearest neighbors (ascending distance, nearest first)
- * @param distances Array to store the distances to the nearest neighbors (same order as ids)
- * @param k The number of nearest neighbors to find
- */
-void hnswlib_search_knn_with_filter(void* index_ptr, const float* query, int* ids, float* distances, int k);
+    HNSWLabelFilterFn filterFn);
 
 /**
  * Sets the query time accuracy/speed trade-off parameter.
