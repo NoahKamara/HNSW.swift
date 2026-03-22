@@ -1,8 +1,7 @@
 //
-//  File.swift
-//  HNSW
+//  HNSWSearchResult.swift
 //
-//  Created by Noah Kamara on 29.04.2025.
+//  Copyright © 2024 Noah Kamara.
 //
 
 /// One neighbor returned by unfiltered k-NN search on ``HNSWIndex``.
@@ -20,4 +19,3 @@ public struct HNSWSearchResult: Sendable {
     /// Distance from the query vector under the index’s space; lower is closer for typical spaces.
     public let distance: Float
 }
-

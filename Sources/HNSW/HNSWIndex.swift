@@ -37,11 +37,10 @@ private func hnswMetadataStringFilterTrampoline(
     _ labelId: Int32
 ) -> Bool {
     let box = Unmanaged<MetadataStringFilterBox>.fromOpaque(userData!).takeUnretainedValue()
-    let metadata: String?
-    if let metaPtr = hnswlib_get_metadata(box.index, labelId) {
-        metadata = String(cString: metaPtr)
+    let metadata: String? = if let metaPtr = hnswlib_get_metadata(box.index, labelId) {
+        String(cString: metaPtr)
     } else {
-        metadata = nil
+        nil
     }
     return box.predicate(metadata)
 }
@@ -71,10 +70,12 @@ public final class HNSWIndex {
 
     /// Creates an empty index with the given vector dimension, capacity, graph connectivity, and distance space.
     /// - Parameters:
-    ///   - dimension: Length of every vector for ``HNSWIndex/addPoint(_:id:metadata:)`` and search; must match your embedding size.
+    ///   - dimension: Length of every vector for ``HNSWIndex/addPoint(_:id:metadata:)`` and search; must match your
+    /// embedding size.
     ///   - maxElements: Upper bound on stored labels before ``resizeIndex(to:)`` is required.
     ///   - M: Maximum outgoing edges per node (default `16`); affects recall, memory, and build cost.
-    ///   - efConstruction: Build-time candidate list size (default `200`); larger values usually improve graph quality at slower inserts.
+    ///   - efConstruction: Build-time candidate list size (default `200`); larger values usually improve graph quality
+    /// at slower inserts.
     ///   - space: ``HNSWSpaceType/l2`` or ``HNSWSpaceType/cosine``; cosine applies normalization in this wrapper.
     public init(
         dimension: Int,
@@ -122,7 +123,8 @@ public final class HNSWIndex {
         Int(hnswlib_get_current_count(self.index))
     }
 
-    /// Rejects negative labels before calling into hnswlib (native code uses unsigned labels and only checks `id >= max_elements`).
+    /// Rejects negative labels before calling into hnswlib (native code uses unsigned labels and only checks `id >=
+    /// max_elements`).
     private func requireValidLabelID(_ id: Int32) throws(HNSWError) {
         guard id >= 0 else {
             throw HNSWError.invalidLabel(id: Int(id))
@@ -144,7 +146,7 @@ public final class HNSWIndex {
         }
 
         // Normalize query vector if using cosine similarity space
-        let normalizedQuery = self.space == .cosine ? normalize(query) : query
+        let normalizedQuery = self.space == .cosine ? self.normalize(query) : query
 
         var ids = [Int32](repeating: -1, count: maxResults)
         var distances = [Float](repeating: 0, count: maxResults)
@@ -162,14 +164,17 @@ public final class HNSWIndex {
             .prefix(maxResults - missing)
             .map { HNSWSearchResult(id: $0, distance: $1) }
     }
-    
+
     /// Searches for up to `k` nearest neighbors among labels that pass `filter`, using hnswlib’s
     /// filtered graph search (not “take `k` unfiltered then drop”).
     ///
-    /// The predicate receives each candidate’s external label id (the same id passed to ``HNSWIndex/addPoint(_:id:metadata:)``).
+    /// The predicate receives each candidate’s external label id (the same id passed to
+    /// ``HNSWIndex/addPoint(_:id:metadata:)``).
     /// Use this to filter against your own payload store or allowlists without storing strings in the index.
-    /// Named `labelFilter` (not `filter`) so it does not clash with ``searchKnn(_:maxResults:filter:)``’s metadata predicate.
-    /// Marked disfavored so a trailing closure without a label (e.g. `{ _ in true }`) resolves to the metadata overload when both could match.
+    /// Named `labelFilter` (not `filter`) so it does not clash with ``searchKnn(_:maxResults:filter:)``’s metadata
+    /// predicate.
+    /// Marked disfavored so a trailing closure without a label (e.g. `{ _ in true }`) resolves to the metadata overload
+    /// when both could match.
     ///
     /// For highly selective filters, increase the query-time `ef` parameter via ``setEf(_:)`` so
     /// the search explores enough candidates to fill `k` results when that many matches exist.
@@ -179,7 +184,8 @@ public final class HNSWIndex {
     ///   - query: The query vector (array of floats)
     ///   - maxResults: The maximum number of nearest neighbors to find (`k`)
     ///   - labelFilter: Return `true` to allow the label in results.
-    /// - Returns: Neighbors that pass the filter, ordered by increasing distance (best match first); fewer than `k` when fewer than `k` matches exist.
+    /// - Returns: Neighbors that pass the filter, ordered by increasing distance (best match first); fewer than `k`
+    /// when fewer than `k` matches exist.
     /// - Throws: An error if the query vector dimension doesn't match the index dimension
     @_disfavoredOverload
     public func searchKnn(
@@ -191,7 +197,7 @@ public final class HNSWIndex {
             throw HNSWError.vectorMismatch(expected: self.dimension, actual: query.count)
         }
 
-        let normalizedQuery = self.space == .cosine ? normalize(query) : query
+        let normalizedQuery = self.space == .cosine ? self.normalize(query) : query
 
         var ids = [Int32](repeating: -1, count: maxResults)
         var distances = [Float](repeating: 0, count: maxResults)
@@ -235,7 +241,8 @@ public final class HNSWIndex {
     ///   - filter: Receives the stored metadata string, or `nil` when none is stored; `nil` is not
     ///     implicitly excluded—the predicate decides, same as filtering an unfiltered search using
     ///     ``getMetadata(for:)``. Return `true` to allow the label.
-    /// - Returns: IDs and distances of neighbors that pass the filter, ordered by increasing distance (best match first); fewer than `k` when fewer than `k` matches exist.
+    /// - Returns: IDs and distances of neighbors that pass the filter, ordered by increasing distance (best match
+    /// first); fewer than `k` when fewer than `k` matches exist.
     /// - Throws: An error if the query vector dimension doesn't match the index dimension
     public func searchKnn(
         _ query: [Float],
@@ -246,7 +253,7 @@ public final class HNSWIndex {
             throw HNSWError.vectorMismatch(expected: self.dimension, actual: query.count)
         }
 
-        let normalizedQuery = self.space == .cosine ? normalize(query) : query
+        let normalizedQuery = self.space == .cosine ? self.normalize(query) : query
 
         var ids = [Int32](repeating: -1, count: maxResults)
         var distances = [Float](repeating: 0, count: maxResults)
@@ -282,7 +289,9 @@ public final class HNSWIndex {
     ///   - vector: Values whose length must equal ``dimension``; cosine space normalizes a copy before storage.
     ///   - id: Non-negative external label; must be unique and within capacity rules enforced by the native index.
     ///   - metadata: Optional opaque string, or `nil` for no metadata.
-    /// - Throws: ``HNSWError/vectorMismatch(expected:actual:)``, ``HNSWError/invalidLabel(id:)``, ``HNSWError/pointAlreadyExists(id:)``, ``HNSWError/idExceedsMaxElements(maxElements:attemptedId:)``, or other ``HNSWError`` cases from the native layer.
+    /// - Throws: ``HNSWError/vectorMismatch(expected:actual:)``, ``HNSWError/invalidLabel(id:)``,
+    /// ``HNSWError/pointAlreadyExists(id:)``, ``HNSWError/idExceedsMaxElements(maxElements:attemptedId:)``, or other
+    /// ``HNSWError`` cases from the native layer.
     public func addPoint(_ vector: [Float], id: Int32, metadata: String? = nil) throws {
         guard vector.count == self.dimension else {
             throw HNSWError.vectorMismatch(expected: self.dimension, actual: vector.count)
@@ -290,16 +299,15 @@ public final class HNSWIndex {
         try self.requireValidLabelID(id)
 
         // Normalize vector if using cosine similarity space
-        let normalizedVector = self.space == .cosine ? normalize(vector) : vector
+        let normalizedVector = self.space == .cosine ? self.normalize(vector) : vector
 
         try normalizedVector.withUnsafeBufferPointer { ptr in
-            let result: Int32
-            if let metadata = metadata {
-                result = hnswlib_add_point_with_metadata(self.index, ptr.baseAddress, id, metadata)
+            let result: Int32 = if let metadata {
+                hnswlib_add_point_with_metadata(self.index, ptr.baseAddress, id, metadata)
             } else {
-                result = hnswlib_add_point(self.index, ptr.baseAddress, id)
+                hnswlib_add_point(self.index, ptr.baseAddress, id)
             }
-            
+
             guard result == 0 else {
                 switch result {
                 case -1:
@@ -348,7 +356,8 @@ public final class HNSWIndex {
 
     /// Soft-deletes `id` so it no longer appears in search results.
     /// - Parameter id: Non-negative label.
-    /// - Throws: ``HNSWError/generalError(message:)`` when the native call fails (for example if the label is not deletable in the current state).
+    /// - Throws: ``HNSWError/generalError(message:)`` when the native call fails (for example if the label is not
+    /// deletable in the current state).
     public func markDeleted(_ id: Int32) throws(HNSWError) {
         try self.requireValidLabelID(id)
         let result = hnswlib_mark_deleted(index, id)
@@ -375,27 +384,31 @@ public final class HNSWIndex {
     /// - Throws: ``HNSWError/generalError(message:)`` if the native resize fails or postconditions are violated.
     public func resizeIndex(to newSize: Int32) throws(HNSWError) {
         precondition(newSize >= 0, "New size must be non-negative")
-        precondition(newSize >= Int32(elementCount), "New size must be greater than or equal to current element count")
-        
+        precondition(
+            newSize >= Int32(self.elementCount),
+            "New size must be greater than or equal to current element count"
+        )
+
         // Store current state for verification
-        let currentCount = elementCount
-        
+        let currentCount = self.elementCount
+
         let result = hnswlib_resize_index(index, newSize)
         guard result == 0 else {
             throw HNSWError.generalError(message: "Failed to resize index (native code: \(result))")
         }
-        
+
         // Verify the resize operation maintained the correct state
-        guard elementCount == currentCount else {
+        guard self.elementCount == currentCount else {
             throw HNSWError.generalError(message: "Element count changed during resize")
         }
-        
-        guard maxElements == Int(newSize) else {
+
+        guard self.maxElements == Int(newSize) else {
             throw HNSWError.generalError(message: "Max elements not updated correctly after resize")
         }
     }
 
-    /// Sets query-time `ef`, controlling how many candidates are explored per search (higher → usually better recall, slower).
+    /// Sets query-time `ef`, controlling how many candidates are explored per search (higher → usually better recall,
+    /// slower).
     /// - Parameter ef: Native `ef` value; tune alongside your data and filters.
     public func setEf(_ ef: Int32) {
         hnswlib_set_ef(self.index, ef)
@@ -417,17 +430,18 @@ public final class HNSWIndex {
     /// - Parameters:
     ///   - path: Filesystem path to a file previously written by ``saveIndex(to:)`` or a compatible hnswlib build.
     ///   - maxElements: Capacity bound passed through to the native loader; must suit your workload.
-    /// - Throws: ``HNSWError/generalError(message:)`` on load failure, or ``HNSWError/spaceMismatch(expected:actual:)`` if the file’s space disagrees with this instance’s ``space`` before load.
+    /// - Throws: ``HNSWError/generalError(message:)`` on load failure, or ``HNSWError/spaceMismatch(expected:actual:)``
+    /// if the file’s space disagrees with this instance’s ``space`` before load.
     public func loadIndex(from path: String, maxElements: Int) throws(HNSWError) {
         // Store space information before loading
         let spaceType = self.space
-        
+
         // Try loading with original maxElements
         let result = hnswlib_load_index(self.index, path, Int32(maxElements))
         guard result == 0 else {
             throw HNSWError.generalError(message: "Failed to load index")
         }
-        
+
         // Verify space after loading
         let loadedSpace = self.space
         guard loadedSpace == spaceType else {
@@ -444,4 +458,3 @@ public final class HNSWIndex {
         return vector.map { $0 / magnitude }
     }
 }
-

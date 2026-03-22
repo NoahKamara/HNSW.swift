@@ -1,12 +1,11 @@
 //
 //  JSONMetadataTests.swift
-//  HNSW
 //
-//  Created by Noah Kamara on 22.03.2026.
+//  Copyright © 2024 Noah Kamara.
 //
 
-import HNSWFoundationCompat
 import HNSW
+import HNSWFoundationCompat
 import Testing
 
 @Suite("JSON metadata")

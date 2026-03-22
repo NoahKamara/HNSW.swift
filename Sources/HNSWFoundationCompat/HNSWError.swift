@@ -1,11 +1,10 @@
 //
 //  HNSWError.swift
-//  HNSW
 //
-//  Created by Noah Kamara on 22.03.2026.
+//  Copyright © 2024 Noah Kamara.
 //
 
-import HNSW
 import Foundation
+import HNSW
 
 extension HNSWError: LocalizedError {}

@@ -1,8 +1,7 @@
 //
 //  RegressionAndSemanticsTests.swift
 //
-//  Covers behaviors that are easy to regress: cosine/query handling, result ordering,
-//  persistence + metadata, filtered k-NN semantics, and edge cases.
+//  Copyright © 2024 Noah Kamara.
 //
 
 import Foundation
@@ -80,7 +79,7 @@ struct FilteredSearchLimitsTests {
     @Test
     func selectiveMetadataFilterMayReturnFewerThanMaxResults() throws {
         let index = HNSWIndex(dimension: 2, maxElements: 64, M: 8, efConstruction: 80)
-        for i in 0 ..< 32 {
+        for i in 0..<32 {
             let x = Float(i)
             try index.addPoint([x, 0], id: Int32(i), metadata: "{\"tag\":\(i == 5 ? 1 : 0)}")
         }
@@ -194,8 +193,6 @@ struct AddAndErrorTests {
         }
     }
 }
-
-
 
 @Suite("HNSWContainer")
 struct HNSWContainerTests {

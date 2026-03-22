@@ -4,7 +4,7 @@
 --binarygrouping none
 --decimalgrouping none
 
---semicolons never 
+--semicolons never
 
 --swiftVersion 6
 --acronyms ID,URL,UUID
@@ -93,7 +93,7 @@
 --voidtype void
 
 
---maxwidth 100
+--maxwidth 120
 --wraparguments before-first
 --wrapparameters before-first
 --wrapcollections before-first

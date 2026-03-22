@@ -17,7 +17,8 @@ public actor HNSWContainer {
         self.index = index
     }
 
-    /// Creates a new index with the same parameters as ``HNSWIndex/init(dimension:maxElements:M:efConstruction:space:)``.
+    /// Creates a new index with the same parameters as
+    /// ``HNSWIndex/init(dimension:maxElements:M:efConstruction:space:)``.
     /// - Parameters:
     ///   - dimension: The dimensionality of the vectors to be indexed
     ///   - maxElements: The maximum number of elements that can be stored in the index
@@ -39,7 +40,7 @@ public actor HNSWContainer {
             space: space
         )
     }
-    
+
     /// Runs `action` with exclusive access to the wrapped ``HNSWIndex``; rethrows any error from `action`.
     /// - Parameter action: Synchronous work that must not escape the `HNSWIndex` outside the closure.
     /// - Returns: Whatever `action` returns.
@@ -58,7 +59,8 @@ public actor HNSWContainer {
         action(self.index)
     }
 
-    /// Replaces the inner index with a fresh ``HNSWIndex`` using the same dimension, capacity, `M`, `efConstruction`, and space.
+    /// Replaces the inner index with a fresh ``HNSWIndex`` using the same dimension, capacity, `M`, `efConstruction`,
+    /// and space.
     public func reset() {
         self.index = .init(
             dimension: self.index.dimension,

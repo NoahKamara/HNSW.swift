@@ -13,7 +13,7 @@ struct IndexTests {
     let embedding = NLEmbedding.wordEmbedding(for: .english)!
 
     @Test
-    func initialize() async throws {
+    func initialize() throws {
         let vector = try #require(self.embedding.vector(for: "banana")).map(Float.init)
         let dimension = vector.count
         let maxElements = 100
@@ -24,7 +24,7 @@ struct IndexTests {
     }
 
     @Test
-    func addPoint() async throws {
+    func addPoint() throws {
         let vector = try #require(self.embedding.vector(for: "banana")).map(Float.init)
         let index = HNSWIndex(dimension: vector.count, maxElements: 1)
 
@@ -35,7 +35,7 @@ struct IndexTests {
     }
 
     @Test
-    func metadata() async throws {
+    func metadata() throws {
         let vector = try #require(self.embedding.vector(for: "banana")).map(Float.init)
         let index = HNSWIndex(dimension: vector.count, maxElements: 1)
 
@@ -70,9 +70,9 @@ struct IndexTests {
         try index.removeMetadata(for: 0)
         #expect(try index.getMetadata(for: 0) == nil)
     }
-    
+
     @Test
-    func delete() async throws {
+    func delete() throws {
         let vector = try #require(self.embedding.vector(for: "banana")).map(Float.init)
         let index = HNSWIndex(dimension: vector.count, maxElements: 1)
         try index.addPoint(vector, id: 0)
@@ -87,7 +87,7 @@ struct IndexTests {
     }
 
     @Test
-    func resizeIndex() async throws {
+    func resizeIndex() throws {
         let fooVector = try #require(embedding.vector(for: "apple")).map(Float.init)
         let barVector = try #require(embedding.vector(for: "banana")).map(Float.init)
         let index = HNSWIndex(dimension: fooVector.count, maxElements: 1)
@@ -106,25 +106,25 @@ struct IndexTests {
         // Resize the index
         try index.resizeIndex(to: 2)
         #expect(index.maxElements == 2)
-        #expect(index.elementCount == 1)  // Element count should remain the same after resize
-        
+        #expect(index.elementCount == 1) // Element count should remain the same after resize
+
         // Add second point after resize
         try index.addPoint(barVector, id: 1)
         #expect(index.elementCount == 2)
-        
+
         // Verify both points are searchable
         let results = try index.searchKnn(fooVector, maxResults: 2)
         #expect(results.count == 2)
-        #expect(Set(results.map { $0.id }) == Set([0, 1]))
-        
+        #expect(Set(results.map(\.id)) == Set([0, 1]))
+
         // Verify we can still search with the second vector
         let results2 = try index.searchKnn(barVector, maxResults: 2)
         #expect(results2.count == 2)
-        #expect(Set(results2.map { $0.id }) == Set([0, 1]))
+        #expect(Set(results2.map(\.id)) == Set([0, 1]))
     }
 
     @Test
-    func searchKnn() async throws {
+    func searchKnn() throws {
         let fruityWords = ["apple", "banana", "orange", "grape", "strawberry"]
         // Create some test words
         let words = fruityWords + ["doctor", "lawyer", "negotiator", "count"]
@@ -144,10 +144,9 @@ struct IndexTests {
         let foundWords = Set(results.map { words[Int($0.id)] })
         #expect(foundWords == Set(fruityWords))
     }
-    
-    
+
     @Test
-    func searchKnnWithMetadataFilter() async throws {
+    func searchKnnWithMetadataFilter() throws {
         let peelableWords = ["banana", "orange"]
         let words = ["apple", "grape", "strawberry"] + peelableWords
         let index = try HNSWIndex.testIndex(words: words)
@@ -174,7 +173,7 @@ struct IndexTests {
             queryVector.map(Float.init),
             maxResults: words.count
         ) { metadata in
-            guard let metadata = metadata else { return false }
+            guard let metadata else { return false }
             return metadata.contains("\"peel\": true")
         }
 
@@ -185,7 +184,7 @@ struct IndexTests {
     }
 
     @Test
-    func searchKnnCosineFilteredMatchesUnfilteredForScaledQuery() async throws {
+    func searchKnnCosineFilteredMatchesUnfilteredForScaledQuery() throws {
         let index = HNSWIndex(dimension: 3, maxElements: 10, space: .cosine)
         try index.addPoint([1, 0, 0], id: 0)
         try index.addPoint([0, 1, 0], id: 1)
@@ -205,7 +204,7 @@ struct IndexTests {
     /// The k unfiltered nearest neighbors are all rejected by the filter, but five farther points match.
     /// Post-filtering unfiltered top-k would return none; graph-native filtering must still return k matches.
     @Test
-    func searchKnnFilteredReturnsKWhenMatchesExistBeyondUnfilteredTopK() async throws {
+    func searchKnnFilteredReturnsKWhenMatchesExistBeyondUnfilteredTopK() throws {
         let rejectCount = 25
         let acceptCount = 5
         let k = acceptCount
@@ -234,9 +233,10 @@ struct IndexTests {
         #expect(filteredIds.allSatisfy { $0 >= rejectCount })
     }
 
-    /// Same geometry as ``searchKnnFilteredReturnsKWhenMatchesExistBeyondUnfilteredTopK``, but filtering by label id only (no metadata in the predicate).
+    /// Same geometry as ``searchKnnFilteredReturnsKWhenMatchesExistBeyondUnfilteredTopK``, but filtering by label id
+    /// only (no metadata in the predicate).
     @Test
-    func searchKnnLabelFilterReturnsKWhenMatchesExistBeyondUnfilteredTopK() async throws {
+    func searchKnnLabelFilterReturnsKWhenMatchesExistBeyondUnfilteredTopK() throws {
         let rejectCount = 25
         let acceptCount = 5
         let k = acceptCount
@@ -266,7 +266,7 @@ struct IndexTests {
     }
 
     @Test
-    func dimensionMismatchError() async throws {
+    func dimensionMismatchError() throws {
         let index = HNSWIndex(dimension: 2, maxElements: 3)
 
         try index.addPoint([1.0, 1.2], id: 0)
@@ -297,7 +297,7 @@ struct IndexTests {
     }
 }
 
-// Helper error type for tests
+/// Helper error type for tests
 struct TestError: Error {
     let message: String
     init(_ message: String) {

@@ -1,8 +1,7 @@
 //
 //  HNSWError.swift
-//  HNSW
 //
-//  Created by Noah Kamara on 27.04.2025.
+//  Copyright © 2024 Noah Kamara.
 //
 
 /// Errors thrown by ``HNSWIndex`` and related APIs when inputs are invalid or the native index reports failure.
@@ -22,7 +21,8 @@ public enum HNSWError: Error, Equatable {
     /// A vector’s length does not match ``HNSWIndex/dimension``.
     case vectorMismatch(expected: Int, actual: Int)
 
-    /// After ``HNSWIndex/loadIndex(from:maxElements:)``, the file’s space type disagrees with the receiver’s ``HNSWIndex/space``.
+    /// After ``HNSWIndex/loadIndex(from:maxElements:)``, the file’s space type disagrees with the receiver’s
+    /// ``HNSWIndex/space``.
     case spaceMismatch(expected: HNSWSpaceType, actual: HNSWSpaceType)
 
     /// Encoded JSON metadata could not be interpreted as UTF-8 (unexpected for standard `JSONEncoder` output).
@@ -35,21 +35,21 @@ public enum HNSWError: Error, Equatable {
     public var errorDescription: String {
         switch self {
         case .indexNotInitialized:
-            return "Index is not initialized"
+            "Index is not initialized"
         case .invalidLabel(let id):
-            return "Label ID must be non-negative (hnswlib uses unsigned labels); got \(id)"
+            "Label ID must be non-negative (hnswlib uses unsigned labels); got \(id)"
         case .idExceedsMaxElements(let max, let id):
-            return "ID \(id) exceeds maximum elements (\(max))"
+            "ID \(id) exceeds maximum elements (\(max))"
         case .pointAlreadyExists(let id):
-            return "Point with ID \(id) already exists"
+            "Point with ID \(id) already exists"
         case .vectorMismatch(let expected, let actual):
-            return "Vector dimension mismatch: expected \(expected), got \(actual)"
+            "Vector dimension mismatch: expected \(expected), got \(actual)"
         case .spaceMismatch(let expected, let actual):
-            return "Space type mismatch after load: expected \(expected), index reports \(actual)"
+            "Space type mismatch after load: expected \(expected), index reports \(actual)"
         case .jsonEncodedMetadataNotUTF8:
-            return "Encoded JSON metadata is not valid UTF-8"
+            "Encoded JSON metadata is not valid UTF-8"
         case .generalError(let message):
-            return message
+            message
         }
     }
 }

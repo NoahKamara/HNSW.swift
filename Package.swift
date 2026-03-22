@@ -32,14 +32,14 @@ let package = Package(
             name: "HNSW",
             dependencies: ["CHNSWLib"],
             swiftSettings: [
-                .enableExperimentalFeature("StrictConcurrency")
+                .enableExperimentalFeature("StrictConcurrency"),
             ]
         ),
         .target(
             name: "HNSWFoundationCompat",
             dependencies: ["HNSW"],
             swiftSettings: [
-                .enableExperimentalFeature("StrictConcurrency")
+                .enableExperimentalFeature("StrictConcurrency"),
             ]
         ),
         .testTarget(

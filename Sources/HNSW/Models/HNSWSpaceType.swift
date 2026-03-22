@@ -1,8 +1,7 @@
 //
-//  File.swift
-//  HNSW
+//  HNSWSpaceType.swift
 //
-//  Created by Noah Kamara on 29.04.2025.
+//  Copyright © 2024 Noah Kamara.
 //
 
 import CHNSWLib
@@ -25,16 +24,16 @@ public enum HNSWSpaceType: Sendable, Equatable, CustomStringConvertible {
         case .cosine: "Cosine"
         }
     }
-    
+
     var cValue: CHNSWLib.HNSWSpaceType {
         switch self {
         case .l2:
-            return HNSW_SPACE_L2
+            HNSW_SPACE_L2
         case .cosine:
-            return HNSW_SPACE_COSINE
+            HNSW_SPACE_COSINE
         }
     }
-    
+
     init(cValue: CHNSWLib.HNSWSpaceType) {
         switch cValue {
         case HNSW_SPACE_L2:
