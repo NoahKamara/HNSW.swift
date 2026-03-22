@@ -87,6 +87,48 @@ struct IndexTests {
     }
 
     @Test
+    func labelExistsAndIsActive() throws {
+        let vector = try #require(self.embedding.vector(for: "banana")).map(Float.init)
+        let index = HNSWIndex(dimension: vector.count, maxElements: 2)
+        try index.addPoint(vector, id: 0)
+
+        #expect(try index.labelExists(id: 0) == true)
+        #expect(try index.isLabelActive(id: 0) == true)
+
+        try index.markDeleted(0)
+        #expect(try index.labelExists(id: 0) == true)
+        #expect(try index.isLabelActive(id: 0) == false)
+
+        try index.unmarkDeleted(0)
+        #expect(try index.labelExists(id: 0) == true)
+        #expect(try index.isLabelActive(id: 0) == true)
+    }
+
+    @Test
+    func labelExistsForNonexistent() throws {
+        let vector = try #require(self.embedding.vector(for: "banana")).map(Float.init)
+        let index = HNSWIndex(dimension: vector.count, maxElements: 2)
+        try index.addPoint(vector, id: 0)
+
+        #expect(try index.labelExists(id: 1) == false)
+        #expect(try index.isLabelActive(id: 1) == false)
+    }
+
+    @Test
+    func labelExistsInvalidLabel() throws {
+        let vector = try #require(self.embedding.vector(for: "banana")).map(Float.init)
+        let index = HNSWIndex(dimension: vector.count, maxElements: 1)
+        try index.addPoint(vector, id: 0)
+
+        #expect(throws: HNSWError.self) {
+            _ = try index.labelExists(id: -1)
+        }
+        #expect(throws: HNSWError.self) {
+            _ = try index.isLabelActive(id: -1)
+        }
+    }
+
+    @Test
     func resizeIndex() throws {
         let fooVector = try #require(embedding.vector(for: "apple")).map(Float.init)
         let barVector = try #require(embedding.vector(for: "banana")).map(Float.init)

@@ -131,6 +131,24 @@ int hnswlib_mark_deleted(void* index_ptr, int id);
 int hnswlib_unmark_deleted(void* index_ptr, int id);
 
 /**
+ * Returns whether an external label is present in the index (including soft-deleted points).
+ *
+ * @param index_ptr Pointer to the index
+ * @param id The external label (same integer as add_point / mark_deleted)
+ * @return 1 if the label is present (including soft-deleted), 0 if absent, -1 if invalid (e.g. id < 0) or failure
+ */
+int hnswlib_label_exists(void* index_ptr, int id);
+
+/**
+ * Returns whether a label is present and not soft-deleted (can appear in an unfiltered search).
+ *
+ * @param index_ptr Pointer to the index
+ * @param id The external label (same integer as add_point / mark_deleted)
+ * @return 1 if present and active, 0 if absent or soft-deleted, -1 if invalid (e.g. id < 0) or failure
+ */
+int hnswlib_label_is_active(void* index_ptr, int id);
+
+/**
  * Changes the maximum capacity of the index.
  * 
  * @param index_ptr Pointer to the index

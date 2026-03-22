@@ -377,6 +377,43 @@ public final class HNSWIndex {
         }
     }
 
+    // MARK: Label queries
+
+    /// Returns whether the given external label is present in the index, including labels that are only soft-deleted.
+    ///
+    /// Use this when you need to know if a label still has a slot in the graph (for example, to reconcile an external
+    /// store with ``maxElements`` capacity). Soft-deleted labels remain in the lookup map until replaced or the index is
+    /// rebuilt; for “would this label appear in an unfiltered search?” use ``isLabelActive(id:)`` instead.
+    /// - Parameter id: Non-negative label (same integer as ``addPoint(_:id:metadata:)`` / ``markDeleted(_:)``).
+    /// - Returns: `true` if the label exists in the native `label_lookup_`, `false` if it was never added or was fully
+    ///   removed.
+    /// - Throws: ``HNSWError/invalidLabel(id:)`` when `id` is negative; ``HNSWError/generalError(message:)`` on
+    ///   unexpected native failure.
+    public func labelExists(id: Int32) throws(HNSWError) -> Bool {
+        try self.requireValidLabelID(id)
+        let result = hnswlib_label_exists(self.index, id)
+        guard result >= 0 else {
+            throw HNSWError.generalError(message: "Failed to check label existence")
+        }
+        return result == 1
+    }
+
+    /// Returns whether the label is present and **not** soft-deleted, so it can appear in a normal unfiltered search.
+    ///
+    /// Equivalent to: label in the lookup map and its internal node is not marked deleted.
+    /// - Parameter id: Non-negative label (same integer as ``addPoint(_:id:metadata:)`` / ``markDeleted(_:)``).
+    /// - Returns: `false` if the label is absent or soft-deleted; `true` if it is active.
+    /// - Throws: ``HNSWError/invalidLabel(id:)`` when `id` is negative; ``HNSWError/generalError(message:)`` on
+    ///   unexpected native failure.
+    public func isLabelActive(id: Int32) throws(HNSWError) -> Bool {
+        try self.requireValidLabelID(id)
+        let result = hnswlib_label_is_active(self.index, id)
+        guard result >= 0 else {
+            throw HNSWError.generalError(message: "Failed to check whether label is active")
+        }
+        return result == 1
+    }
+
     // MARK: Settings
 
     /// Updates the native maximum element capacity while preserving the current ``elementCount``.

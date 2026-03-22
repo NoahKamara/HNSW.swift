@@ -287,6 +287,41 @@ extern "C" {
         }
     }
 
+    int hnswlib_label_exists(void* index_ptr, int id) {
+        if (id < 0) {
+            return -1;
+        }
+        try {
+            auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
+            auto label = static_cast<hnswlib::labeltype>(id);
+            std::unique_lock<std::mutex> lock(wrapper->index->label_lookup_lock);
+            return wrapper->index->label_lookup_.find(label)
+                       != wrapper->index->label_lookup_.end() ? 1 : 0;
+        } catch (...) {
+            return -1;
+        }
+    }
+
+    int hnswlib_label_is_active(void* index_ptr, int id) {
+        if (id < 0) {
+            return -1;
+        }
+        try {
+            auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
+            auto label = static_cast<hnswlib::labeltype>(id);
+            std::unique_lock<std::mutex> lock(wrapper->index->label_lookup_lock);
+            auto search = wrapper->index->label_lookup_.find(label);
+            if (search == wrapper->index->label_lookup_.end()) {
+                return 0;
+            }
+            auto internalId = search->second;
+            lock.unlock();
+            return wrapper->index->isMarkedDeleted(internalId) ? 0 : 1;
+        } catch (...) {
+            return -1;
+        }
+    }
+
     int hnswlib_resize_index(void* index_ptr, int new_size) {
         try {
             auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
