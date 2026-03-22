@@ -117,6 +117,23 @@ void loadMetadata(std::unordered_map<int, std::string>& metadata, const std::str
     }
 }
 
+namespace {
+
+// searchKnn fills a max-heap by distance; draining yields farthest-first. Expose nearest-first.
+void fillNearestFirst(
+    const std::vector<std::pair<float, hnswlib::labeltype>>& heapDrainOrder,
+    int* ids,
+    float* distances) {
+    const size_t n = heapDrainOrder.size();
+    for (size_t i = 0; i < n; ++i) {
+        const auto& p = heapDrainOrder[n - 1 - i];
+        ids[i] = static_cast<int>(p.second);
+        distances[i] = p.first;
+    }
+}
+
+}  // namespace
+
 extern "C" {
     using namespace hnswlib;
     
@@ -228,12 +245,8 @@ extern "C" {
             sorted_results.push_back(result.top());
             result.pop();
         }
-        
-        // Fill in the results
-        for (size_t i = 0; i < sorted_results.size(); i++) {
-            ids[i] = static_cast<int>(sorted_results[i].second);
-            distances[i] = sorted_results[i].first;
-        }
+
+        fillNearestFirst(sorted_results, ids, distances);
     }
 
     void hnswlib_search_knn_with_metadata_filter(
@@ -257,10 +270,7 @@ extern "C" {
             result.pop();
         }
 
-        for (size_t i = 0; i < sorted_results.size(); i++) {
-            ids[i] = static_cast<int>(sorted_results[i].second);
-            distances[i] = sorted_results[i].first;
-        }
+        fillNearestFirst(sorted_results, ids, distances);
     }
 
     int hnswlib_set_ef(void* index_ptr, int ef) {
@@ -393,12 +403,8 @@ extern "C" {
                 sorted_results.push_back(result.top());
                 result.pop();
             }
-            
-            // Fill in the results
-            for (size_t i = 0; i < sorted_results.size(); i++) {
-                ids[i] = static_cast<int>(sorted_results[i].second);
-                distances[i] = sorted_results[i].first;
-            }
+
+            fillNearestFirst(sorted_results, ids, distances);
         } else {
             hnswlib_search_knn(index_ptr, query, ids, distances, k);
         }

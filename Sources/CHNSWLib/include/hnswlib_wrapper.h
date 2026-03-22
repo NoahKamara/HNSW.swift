@@ -54,8 +54,8 @@ int hnswlib_add_point(void* index_ptr, const float* vector, int id);
  * 
  * @param index_ptr Pointer to the index
  * @param query The query vector (array of floats)
- * @param ids Array to store the IDs of the k nearest neighbors
- * @param distances Array to store the distances to the k nearest neighbors
+ * @param ids Array to store the IDs of the k nearest neighbors (ascending distance, nearest first)
+ * @param distances Array to store the distances to the k nearest neighbors (same order as ids)
  * @param k The number of nearest neighbors to find
  */
 void hnswlib_search_knn(void* index_ptr, const float* query, int* ids, float* distances, int k);
@@ -67,6 +67,9 @@ typedef bool (*HNSWMetadataFilterFn)(void* userData, const char* metadataOrNull)
 
 /**
  * Searches for k nearest neighbors whose labels pass the filter, evaluated during the graph walk.
+ *
+ * Valid entries in @p ids and @p distances are ascending by distance (nearest first); fewer than @p k
+ * when the filter is selective.
  *
  * @param userData Opaque pointer passed to @p filterFn
  * @param filterFn Called for each candidate label; must not be NULL
@@ -93,8 +96,8 @@ void hnswlib_set_filter(void* index_ptr, bool (*filter_func)(const char*));
  * 
  * @param index_ptr Pointer to the index
  * @param query The query vector
- * @param ids Array to store the IDs of the nearest neighbors
- * @param distances Array to store the distances to the nearest neighbors
+ * @param ids Array to store the IDs of the nearest neighbors (ascending distance, nearest first)
+ * @param distances Array to store the distances to the nearest neighbors (same order as ids)
  * @param k The number of nearest neighbors to find
  */
 void hnswlib_search_knn_with_filter(void* index_ptr, const float* query, int* ids, float* distances, int k);

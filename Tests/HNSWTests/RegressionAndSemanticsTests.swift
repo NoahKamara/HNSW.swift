@@ -23,9 +23,9 @@ private func assertSameSearchOrder(
 
 @Suite("Search semantics")
 struct SearchSemanticsTests {
-    /// The C bridge copies from hnswlib's max-heap so distances are non-increasing (farthest first, nearest last).
+    /// Results are ordered by increasing distance (nearest neighbor first).
     @Test
-    func knnResultsAreOrderedFarthestToNearest() throws {
+    func knnResultsAreOrderedNearestToFarthest() throws {
         let index = HNSWIndex(dimension: 2, maxElements: 20, M: 8, efConstruction: 64)
         try index.addPoint([0, 0], id: 0)
         try index.addPoint([1, 0], id: 1)
@@ -36,7 +36,7 @@ struct SearchSemanticsTests {
         #expect(results.count == 4)
         let distances = results.map(\.distance)
         for i in distances.indices.dropLast() {
-            #expect(distances[i] >= distances[i + 1] - 1e-5)
+            #expect(distances[i] <= distances[i + 1] + 1e-5)
         }
     }
 

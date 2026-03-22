@@ -96,7 +96,7 @@ public final class HNSWIndex {
     /// - Parameters:
     ///   - query: The query vector (array of floats)
     ///   - maxResults: The maximum number of nearest neighbors to find
-    /// - Returns: An array of tuples containing the IDs and distances of the k nearest neighbors
+    /// - Returns: The k nearest neighbors as ``HNSWSearchResult`` values ordered by increasing distance (best match first).
     /// - Throws: An error if the query vector dimension doesn't match the index dimension
     public func searchKnn(
         _ query: [Float],
@@ -137,7 +137,7 @@ public final class HNSWIndex {
     ///   - query: The query vector (array of floats)
     ///   - maxResults: The maximum number of nearest neighbors to find (`k`)
     ///   - filter: Receives the stored metadata string, or `nil` when none is stored; return `true` to allow the label
-    /// - Returns: IDs and distances of the nearest neighbors that pass the filter (fewer than `k` if fewer than `k` matches exist)
+    /// - Returns: IDs and distances of neighbors that pass the filter, ordered by increasing distance (best match first); fewer than `k` when fewer than `k` matches exist.
     /// - Throws: An error if the query vector dimension doesn't match the index dimension
     public func searchKnn(
         _ query: [Float],
