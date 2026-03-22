@@ -121,11 +121,13 @@ public final class HNSWIndex {
             throw HNSWError.vectorMismatch(expected: self.dimension, actual: query.count)
         }
 
+        let normalizedQuery = self.space == .cosine ? normalize(query) : query
+
         var ids = [Int32](repeating: -1, count: maxResults)
         var distances = [Float](repeating: 0, count: maxResults)
 
         // Get all results first
-        query.withUnsafeBufferPointer { ptr in
+        normalizedQuery.withUnsafeBufferPointer { ptr in
             hnswlib_search_knn(self.index, ptr.baseAddress, &ids, &distances, Int32(maxResults))
         }
 

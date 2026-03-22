@@ -61,10 +61,30 @@ int hnswlib_add_point(void* index_ptr, const float* vector, int id);
 void hnswlib_search_knn(void* index_ptr, const float* query, int* ids, float* distances, int k);
 
 /**
+ * Per-query metadata filter. @p metadataOrNull is NULL when the label has no stored metadata.
+ */
+typedef bool (*HNSWMetadataFilterFn)(void* userData, const char* metadataOrNull);
+
+/**
+ * Searches for k nearest neighbors whose labels pass the filter, evaluated during the graph walk.
+ *
+ * @param userData Opaque pointer passed to @p filterFn
+ * @param filterFn Called for each candidate label; must not be NULL
+ */
+void hnswlib_search_knn_with_metadata_filter(
+    void* index_ptr,
+    const float* query,
+    int* ids,
+    float* distances,
+    int k,
+    void* userData,
+    HNSWMetadataFilterFn filterFn);
+
+/**
  * Sets the current filter function for the index.
  * 
  * @param index_ptr Pointer to the index
- * @param filter_func A function that takes a metadata string and returns true if the vector should be included in results
+ * @param filter_func A function that takes a metadata string or NULL (no metadata) and returns true if the vector should be included in results
  */
 void hnswlib_set_filter(void* index_ptr, bool (*filter_func)(const char*));
 

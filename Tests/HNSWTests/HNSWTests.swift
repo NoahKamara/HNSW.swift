@@ -150,10 +150,8 @@ struct IndexTests {
         let words = ["apple", "grape", "strawberry"] + peelableWords
         let index = try HNSWIndex.testIndex(words: words)
 
-        var i = 0
-        for word in words + peelableWords {
-            defer { i += 1 }
-            let peel = peelableWords.contains(word) ? true : false
+        for (i, word) in words.enumerated() {
+            let peel = peelableWords.contains(word)
             let metadata = """
             {
                 "peel": \(peel),
@@ -184,6 +182,23 @@ struct IndexTests {
         #expect(foundWords.count > 0)
     }
 
+    @Test
+    func searchKnnCosineFilteredMatchesUnfilteredForScaledQuery() async throws {
+        let index = HNSWIndex(dimension: 3, maxElements: 10, space: .cosine)
+        try index.addPoint([1, 0, 0], id: 0)
+        try index.addPoint([0, 1, 0], id: 1)
+
+        let query: [Float] = [2, 0, 0]
+        let k = 2
+        let unfiltered = try index.searchKnn(query, maxResults: k)
+        let filtered = try index.searchKnn(query, maxResults: k) { _ in true }
+
+        #expect(unfiltered.count == filtered.count)
+        for (a, b) in zip(unfiltered, filtered) {
+            #expect(Int(a.id) == b.id)
+            #expect(abs(a.distance - b.distance) < 1e-5)
+        }
+    }
 
     @Test
     func dimensionMismatchError() async throws {
@@ -205,6 +220,14 @@ struct IndexTests {
 
         #expect(throws: HNSWError.self) {
             try index.searchKnn([1.0], maxResults: 1)
+        }
+
+        #expect(throws: HNSWError.self) {
+            try index.searchKnn([1.0, 2.0, 3.0], maxResults: 1) { _ in true }
+        }
+
+        #expect(throws: HNSWError.self) {
+            try index.searchKnn([1.0], maxResults: 1) { _ in true }
         }
     }
 }

@@ -14,9 +14,30 @@ struct HNSWIndexWrapper {
     hnswlib::SpaceInterface<float>* space;  // Store the space interface
     int dimension;
     std::unordered_map<int, std::string> metadata;  // Map of ID to metadata string
-    bool (*filter_func)(const char*);  // Current filter function
+    bool (*filter_func)(const char*);  // Legacy filter (hnswlib_set_filter)
+    void* transient_filter_user_data;
+    HNSWMetadataFilterFn transient_filter_fn;
     HNSWSpaceType space_type;  // Store the space type
 };
+
+namespace {
+
+struct TransientFilterGuard {
+    HNSWIndexWrapper* wrapper;
+
+    TransientFilterGuard(HNSWIndexWrapper* w, void* user_data, HNSWMetadataFilterFn fn)
+        : wrapper(w) {
+        wrapper->transient_filter_user_data = user_data;
+        wrapper->transient_filter_fn = fn;
+    }
+
+    ~TransientFilterGuard() {
+        wrapper->transient_filter_user_data = nullptr;
+        wrapper->transient_filter_fn = nullptr;
+    }
+};
+
+}  // namespace
 
 // Custom filter functor that checks metadata
 class MetadataFilterFunctor : public hnswlib::BaseFilterFunctor {
@@ -24,17 +45,24 @@ private:
     HNSWIndexWrapper* wrapper;
 
 public:
-    MetadataFilterFunctor(HNSWIndexWrapper* wrapper) : wrapper(wrapper) {}
+    explicit MetadataFilterFunctor(HNSWIndexWrapper* wrapper) : wrapper(wrapper) {}
 
     bool operator()(hnswlib::labeltype id) override {
-        // Skip negative IDs
         if (id < 0) return false;
-        
+
+        const char* meta = nullptr;
         auto it = wrapper->metadata.find(static_cast<int>(id));
-        if (it == wrapper->metadata.end()) {
-            return false;  // No metadata means no match
+        if (it != wrapper->metadata.end()) {
+            meta = it->second.c_str();
         }
-        return wrapper->filter_func ? wrapper->filter_func(it->second.c_str()) : true;
+
+        if (wrapper->transient_filter_fn != nullptr) {
+            return wrapper->transient_filter_fn(wrapper->transient_filter_user_data, meta);
+        }
+        if (wrapper->filter_func != nullptr) {
+            return wrapper->filter_func(meta);
+        }
+        return true;
     }
 };
 
@@ -101,7 +129,8 @@ extern "C" {
         }
         
         hnswlib::HierarchicalNSW<float>* index = new hnswlib::HierarchicalNSW<float>(space, max_elements, M, ef_construction);
-        HNSWIndexWrapper* wrapper = new HNSWIndexWrapper{index, space, dim, {}, nullptr, space_type};
+        HNSWIndexWrapper* wrapper = new HNSWIndexWrapper{
+            index, space, dim, {}, nullptr, nullptr, nullptr, space_type};
         return static_cast<void*>(wrapper);
     }
     
@@ -207,6 +236,33 @@ extern "C" {
         }
     }
 
+    void hnswlib_search_knn_with_metadata_filter(
+        void* index_ptr,
+        const float* query,
+        int* ids,
+        float* distances,
+        int k,
+        void* user_data,
+        HNSWMetadataFilterFn filter_fn) {
+        auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
+        TransientFilterGuard guard(wrapper, user_data, filter_fn);
+
+        MetadataFilterFunctor filter(wrapper);
+        std::priority_queue<std::pair<float, labeltype>> result =
+            wrapper->index->searchKnn(query, static_cast<size_t>(k), &filter);
+
+        std::vector<std::pair<float, labeltype>> sorted_results;
+        while (!result.empty()) {
+            sorted_results.push_back(result.top());
+            result.pop();
+        }
+
+        for (size_t i = 0; i < sorted_results.size(); i++) {
+            ids[i] = static_cast<int>(sorted_results[i].second);
+            distances[i] = sorted_results[i].first;
+        }
+    }
+
     int hnswlib_set_ef(void* index_ptr, int ef) {
         try {
             auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
@@ -232,6 +288,7 @@ extern "C" {
         try {
             auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
             wrapper->index->loadIndex(path, wrapper->space, max_elements);
+            wrapper->metadata.clear();
             loadMetadata(wrapper->metadata, path);
             return 0;
         } catch (...) {
