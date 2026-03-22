@@ -7,10 +7,18 @@
 
 import CHNSWLib
 
+/// Distance metric used when building and querying an ``HNSWIndex``.
+///
+/// Choose a space at index creation; ``HNSWIndex/loadIndex(from:maxElements:)`` verifies the loaded
+/// index reports the same space or throws ``HNSWError/spaceMismatch(expected:actual:)``.
 public enum HNSWSpaceType: Sendable, Equatable, CustomStringConvertible {
+    /// Squared Euclidean (L2) distance between vectors as stored.
     case l2
+
+    /// Cosine-related similarity using vectors normalized by this package on insert and query.
     case cosine
-    
+
+    /// A short human-readable name for logging or UI.
     public var description: String {
         switch self {
         case .l2: "L2"

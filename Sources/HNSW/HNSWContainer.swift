@@ -4,15 +4,20 @@
 //  Copyright © 2024 Noah Kamara.
 //
 
-/// A Sendable wrapper around a HNSWIndex
+/// An `actor` that owns an ``HNSWIndex`` and serializes all access to it across concurrent tasks.
+///
+/// ``HNSWIndex`` is not `Sendable` and its native backing store is not safe for unsynchronized
+/// concurrent use. Use the actor’s `perform` methods to run work against the index on this actor’s
+/// executor. See also <doc:ConcurrencyWithContainer>.
 public actor HNSWContainer {
     private var index: HNSWIndex
 
+    /// Wraps an existing index; the container becomes the sole concurrency domain that should touch it.
     public init(index: HNSWIndex) {
         self.index = index
     }
-    
-    /// Creates a new HNSW index with the specified parameters.
+
+    /// Creates a new index with the same parameters as ``HNSWIndex/init(dimension:maxElements:M:efConstruction:space:)``.
     /// - Parameters:
     ///   - dimension: The dimensionality of the vectors to be indexed
     ///   - maxElements: The maximum number of elements that can be stored in the index
@@ -35,21 +40,25 @@ public actor HNSWContainer {
         )
     }
     
-    /// Perform an action on the ``HNSWIndex`` and return its result on the actor executor.
+    /// Runs `action` with exclusive access to the wrapped ``HNSWIndex``; rethrows any error from `action`.
+    /// - Parameter action: Synchronous work that must not escape the `HNSWIndex` outside the closure.
+    /// - Returns: Whatever `action` returns.
     public func perform<R: Sendable>(
         _ action: @Sendable (HNSWIndex) throws -> R
     ) throws -> R {
         try action(self.index)
     }
 
-    /// Perform an action on the ``HNSWIndex`` and return its result on the actor executor.
+    /// Runs `action` with exclusive access to the wrapped ``HNSWIndex``.
+    /// - Parameter action: Synchronous work that must not escape the `HNSWIndex` outside the closure.
+    /// - Returns: Whatever `action` returns.
     public func perform<R: Sendable>(
         _ action: @Sendable (HNSWIndex) -> R
     ) -> R {
         action(self.index)
     }
-    
-    /// Drops the current index and initializes a new one with the same configuration
+
+    /// Replaces the inner index with a fresh ``HNSWIndex`` using the same dimension, capacity, `M`, `efConstruction`, and space.
     public func reset() {
         self.index = .init(
             dimension: self.index.dimension,

@@ -11,6 +11,10 @@ let package = Package(
             name: "HNSW",
             targets: ["HNSW"]
         ),
+        .library(
+            name: "HNSWFoundationCompat",
+            targets: ["HNSWFoundationCompat"]
+        ),
     ],
     targets: [
         // C++ interop target (for HNSW)
@@ -31,9 +35,16 @@ let package = Package(
                 .enableExperimentalFeature("StrictConcurrency")
             ]
         ),
+        .target(
+            name: "HNSWFoundationCompat",
+            dependencies: ["HNSW"],
+            swiftSettings: [
+                .enableExperimentalFeature("StrictConcurrency")
+            ]
+        ),
         .testTarget(
             name: "HNSWTests",
-            dependencies: ["HNSW"],
+            dependencies: ["HNSW", "HNSWFoundationCompat"],
             swiftSettings: [
                 .interoperabilityMode(.Cxx),
             ]

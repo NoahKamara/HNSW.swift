@@ -5,7 +5,6 @@
 //
 
 import CHNSWLib
-import Foundation
 
 private final class LabelFilterBox {
     let predicate: (Int32) -> Bool
@@ -47,9 +46,22 @@ private func hnswMetadataStringFilterTrampoline(
     return box.predicate(metadata)
 }
 
-/// A Swift wrapper for the HNSW (Hierarchical Navigable Small World) index.
-/// HNSW is an efficient approximate nearest neighbor search algorithm that uses a hierarchical
-/// graph structure.
+/// A Swift wrapper around an HNSW (Hierarchical Navigable Small World) index backed by hnswlib.
+///
+/// Store fixed-length vectors under non-negative integer labels, query *k* approximate nearest
+/// neighbors, attach optional metadata, and persist to disk. Search quality and latency depend on
+/// construction parameters (``HNSWIndex/M``, ``HNSWIndex/efConstruction``) and query-time
+/// ``HNSWIndex/setEf(_:)``.
+///
+/// ## Thread safety
+///
+/// Do not call methods on the same instance concurrently unless you provide external synchronization.
+/// For Swift concurrency, use ``HNSWContainer`` and its `perform` methods.
+///
+/// ## See Also
+///
+/// - <doc:GettingStarted>
+/// - <doc:FilteredSearch>
 public final class HNSWIndex {
     private let index: UnsafeMutableRawPointer
 
@@ -57,13 +69,13 @@ public final class HNSWIndex {
         hnswlib_free_index(index)
     }
 
-    /// Creates a new HNSW index with the specified parameters.
+    /// Creates an empty index with the given vector dimension, capacity, graph connectivity, and distance space.
     /// - Parameters:
-    ///   - dimension: The dimensionality of the vectors to be indexed
-    ///   - maxElements: The maximum number of elements that can be stored in the index
-    ///   - M: The maximum number of outgoing connections in the graph (default: 16)
-    ///   - efConstruction: The construction time/accuracy trade-off parameter (default: 200)
-    ///   - space: The space type to use for distance calculations (default: .l2)
+    ///   - dimension: Length of every vector for ``HNSWIndex/addPoint(_:id:metadata:)`` and search; must match your embedding size.
+    ///   - maxElements: Upper bound on stored labels before ``resizeIndex(to:)`` is required.
+    ///   - M: Maximum outgoing edges per node (default `16`); affects recall, memory, and build cost.
+    ///   - efConstruction: Build-time candidate list size (default `200`); larger values usually improve graph quality at slower inserts.
+    ///   - space: ``HNSWSpaceType/l2`` or ``HNSWSpaceType/cosine``; cosine applies normalization in this wrapper.
     public init(
         dimension: Int,
         maxElements: Int,
@@ -80,32 +92,32 @@ public final class HNSWIndex {
         )
     }
 
-    /// The space type of the index (currently supports "l2" and "cosine")
+    /// The metric space selected at initialization or reported after load.
     public var space: HNSWSpaceType {
         HNSWSpaceType(cValue: hnswlib_get_space_type(self.index))
     }
 
-    /// The dimensionality of the space
+    /// Vector length required for every insert and query.
     public var dimension: Int {
         Int(hnswlib_get_dim(self.index))
     }
 
-    /// The maximum number of outgoing connections in the graph
+    /// Maximum graph degree parameter `M` from initialization.
     public var M: Int {
         Int(hnswlib_get_M(self.index))
     }
 
-    /// The construction time/accuracy trade-off parameter
+    /// Build-time `efConstruction` parameter from initialization.
     public var efConstruction: Int {
         Int(hnswlib_get_ef_construction(self.index))
     }
 
-    /// The current capacity of the index
+    /// Current maximum number of storable labels (may change after ``resizeIndex(to:)``).
     public var maxElements: Int {
         Int(hnswlib_get_max_elements(self.index))
     }
 
-    /// The current number of elements in the index
+    /// Number of labels currently present in the index.
     public var elementCount: Int {
         Int(hnswlib_get_current_count(self.index))
     }
@@ -117,12 +129,12 @@ public final class HNSWIndex {
         }
     }
 
-    /// Searches for k nearest neighbors of a query vector.
+    /// Performs unfiltered approximate k-nearest neighbor search for `query`.
     /// - Parameters:
-    ///   - query: The query vector (array of floats)
-    ///   - maxResults: The maximum number of nearest neighbors to find
-    /// - Returns: The k nearest neighbors as ``HNSWSearchResult`` values ordered by increasing distance (best match first).
-    /// - Throws: An error if the query vector dimension doesn't match the index dimension
+    ///   - query: Query vector whose length must equal ``dimension``.
+    ///   - maxResults: Maximum neighbors to return (`k`); may be fewer if the index is sparse.
+    /// - Returns: ``HNSWSearchResult`` values ordered by increasing ``HNSWSearchResult/distance`` (best match first).
+    /// - Throws: ``HNSWError/vectorMismatch(expected:actual:)`` when `query.count` ≠ ``dimension``.
     public func searchKnn(
         _ query: [Float],
         maxResults: Int
@@ -154,7 +166,7 @@ public final class HNSWIndex {
     /// Searches for up to `k` nearest neighbors among labels that pass `filter`, using hnswlib’s
     /// filtered graph search (not “take `k` unfiltered then drop”).
     ///
-    /// The predicate receives each candidate’s external label id (the same id passed to ``addPoint``).
+    /// The predicate receives each candidate’s external label id (the same id passed to ``HNSWIndex/addPoint(_:id:metadata:)``).
     /// Use this to filter against your own payload store or allowlists without storing strings in the index.
     /// Named `labelFilter` (not `filter`) so it does not clash with ``searchKnn(_:maxResults:filter:)``’s metadata predicate.
     /// Marked disfavored so a trailing closure without a label (e.g. `{ _ in true }`) resolves to the metadata overload when both could match.
@@ -265,12 +277,12 @@ public final class HNSWIndex {
             .map { (id: Int($0), distance: $1) }
     }
 
-    /// Adds a vector to the index with the specified ID and metadata.
+    /// Inserts `vector` under label `id`, optionally storing a metadata string for filtered search and helpers.
     /// - Parameters:
-    ///   - vector: The vector to add (array of floats)
-    ///   - id: Non-negative integer ID to associate with the vector (hnswlib stores labels as unsigned).
-    ///   - metadata: Optional metadata string to associate with the vector
-    /// - Throws: An error if the vector dimension doesn't match the index dimension or if the add operation fails
+    ///   - vector: Values whose length must equal ``dimension``; cosine space normalizes a copy before storage.
+    ///   - id: Non-negative external label; must be unique and within capacity rules enforced by the native index.
+    ///   - metadata: Optional opaque string, or `nil` for no metadata.
+    /// - Throws: ``HNSWError/vectorMismatch(expected:actual:)``, ``HNSWError/invalidLabel(id:)``, ``HNSWError/pointAlreadyExists(id:)``, ``HNSWError/idExceedsMaxElements(maxElements:attemptedId:)``, or other ``HNSWError`` cases from the native layer.
     public func addPoint(_ vector: [Float], id: Int32, metadata: String? = nil) throws {
         guard vector.count == self.dimension else {
             throw HNSWError.vectorMismatch(expected: self.dimension, actual: vector.count)
@@ -305,10 +317,9 @@ public final class HNSWIndex {
         }
     }
 
-    /// Gets the metadata associated with a vector ID.
-    /// - Parameter id: Non-negative label ID
-    /// - Returns: The metadata string, or nil if no metadata exists
-    /// - Throws: ``HNSWError/invalidLabel(id:)`` if `id` is negative
+    /// Returns the stored metadata string for `id`, or `nil` when none was set.
+    /// - Parameter id: Non-negative label.
+    /// - Throws: ``HNSWError/invalidLabel(id:)`` when `id` is negative.
     public func getMetadata(for id: Int32) throws(HNSWError) -> String? {
         try self.requireValidLabelID(id)
         guard let metadata = hnswlib_get_metadata(self.index, id) else {
@@ -317,27 +328,27 @@ public final class HNSWIndex {
         return String(cString: metadata)
     }
 
-    /// Sets or updates the metadata for a vector ID.
+    /// Associates metadata with an existing label, replacing any previous string; pass `nil` to clear.
     /// - Parameters:
-    ///   - metadata: The metadata string to associate with the vector
-    ///   - id: Non-negative label ID
-    /// - Throws: ``HNSWError/invalidLabel(id:)`` if `id` is negative
+    ///   - metadata: New metadata value, or `nil` to remove the string association.
+    ///   - id: Non-negative label.
+    /// - Throws: ``HNSWError/invalidLabel(id:)`` when `id` is negative.
     public func setMetadata(_ metadata: String?, for id: Int32) throws(HNSWError) {
         try self.requireValidLabelID(id)
         hnswlib_set_metadata(self.index, id, metadata)
     }
 
-    /// Removes the metadata associated with a vector ID.
-    /// - Parameter id: Non-negative label ID
-    /// - Throws: ``HNSWError/invalidLabel(id:)`` if `id` is negative
+    /// Deletes stored metadata for `id` if present.
+    /// - Parameter id: Non-negative label.
+    /// - Throws: ``HNSWError/invalidLabel(id:)`` when `id` is negative.
     public func removeMetadata(for id: Int32) throws(HNSWError) {
         try self.requireValidLabelID(id)
         hnswlib_remove_metadata(self.index, id)
     }
 
-    /// Marks an element as deleted, so it will be omitted from search results.
-    /// - Parameter id: Non-negative label ID
-    /// - Throws: An error if the element is already deleted
+    /// Soft-deletes `id` so it no longer appears in search results.
+    /// - Parameter id: Non-negative label.
+    /// - Throws: ``HNSWError/generalError(message:)`` when the native call fails (for example if the label is not deletable in the current state).
     public func markDeleted(_ id: Int32) throws(HNSWError) {
         try self.requireValidLabelID(id)
         let result = hnswlib_mark_deleted(index, id)
@@ -346,9 +357,9 @@ public final class HNSWIndex {
         }
     }
 
-    /// Unmarks an element as deleted, so it will be included in search results.
-    /// - Parameter id: Non-negative label ID
-    /// - Throws: An error if the element is not deleted
+    /// Restores a previously deleted label to normal search visibility.
+    /// - Parameter id: Non-negative label.
+    /// - Throws: ``HNSWError/generalError(message:)`` when the native call fails.
     public func unmarkDeleted(_ id: Int32) throws(HNSWError) {
         try self.requireValidLabelID(id)
         let result = hnswlib_unmark_deleted(index, id)
@@ -359,9 +370,9 @@ public final class HNSWIndex {
 
     // MARK: Settings
 
-    /// Changes the maximum capacity of the index.
-    /// - Parameter newSize: The new maximum capacity
-    /// - Throws: An error if the resize operation fails
+    /// Updates the native maximum element capacity while preserving the current ``elementCount``.
+    /// - Parameter newSize: New capacity; must be ≥ current ``elementCount`` and non-negative.
+    /// - Throws: ``HNSWError/generalError(message:)`` if the native resize fails or postconditions are violated.
     public func resizeIndex(to newSize: Int32) throws(HNSWError) {
         precondition(newSize >= 0, "New size must be non-negative")
         precondition(newSize >= Int32(elementCount), "New size must be greater than or equal to current element count")
@@ -384,17 +395,17 @@ public final class HNSWIndex {
         }
     }
 
-    /// Sets the query time accuracy/speed trade-off parameter.
-    /// - Parameter ef: The ef parameter value
+    /// Sets query-time `ef`, controlling how many candidates are explored per search (higher → usually better recall, slower).
+    /// - Parameter ef: Native `ef` value; tune alongside your data and filters.
     public func setEf(_ ef: Int32) {
         hnswlib_set_ef(self.index, ef)
     }
 
     // MARK: Persistence
 
-    /// Saves the index to a file.
-    /// - Parameter path: The path where to save the index
-    /// - Throws: An error if the file cannot be written
+    /// Writes a binary index snapshot to `path`.
+    /// - Parameter path: Filesystem path writable by the process.
+    /// - Throws: ``HNSWError/generalError(message:)`` on I/O or native serialization failure.
     public func saveIndex(to path: String) throws {
         let result = hnswlib_save_index(self.index, path)
         guard result == 0 else {
@@ -402,11 +413,11 @@ public final class HNSWIndex {
         }
     }
 
-    /// Loads an index from a file.
+    /// Replaces the receiver’s native index with contents loaded from `path`.
     /// - Parameters:
-    ///   - path: The path to the index file
-    ///   - maxElements: The maximum number of elements that can be stored in the index
-    /// - Throws: An error if the file cannot be read
+    ///   - path: Filesystem path to a file previously written by ``saveIndex(to:)`` or a compatible hnswlib build.
+    ///   - maxElements: Capacity bound passed through to the native loader; must suit your workload.
+    /// - Throws: ``HNSWError/generalError(message:)`` on load failure, or ``HNSWError/spaceMismatch(expected:actual:)`` if the file’s space disagrees with this instance’s ``space`` before load.
     public func loadIndex(from path: String, maxElements: Int) throws(HNSWError) {
         // Store space information before loading
         let spaceType = self.space
@@ -428,62 +439,9 @@ public final class HNSWIndex {
     /// - Parameter vector: The vector to normalize
     /// - Returns: The normalized vector
     private func normalize(_ vector: [Float]) -> [Float] {
-        let magnitude = sqrt(vector.reduce(0) { $0 + $1 * $1 })
+        let magnitude = vector.reduce(0) { $0 + $1 * $1 }.squareRoot()
         guard magnitude > 0 else { return vector }
         return vector.map { $0 / magnitude }
     }
 }
 
-private func utf8String(from data: Data) throws -> String {
-    guard let string = String(data: data, encoding: .utf8) else {
-        throw HNSWError.jsonEncodedMetadataNotUTF8
-    }
-    return string
-}
-
-extension HNSWIndex {
-    /// Gets the decoded JSON metadata associated with a vector ID.
-    /// - Parameter id: The ID of the vector
-    /// - Returns: The metadata string, or nil if no metadata exists
-    public func getJSONMetadata<T: Decodable>(
-        for id: Int32,
-        as type: T.Type,
-        decoder: JSONDecoder = JSONDecoder()
-    ) throws -> T? {
-        guard let rawMetadata = try self.getMetadata(for: id)?.data(using: .utf8) else {
-            return nil
-        }
-        
-        return try decoder.decode(T.self, from: rawMetadata)
-    }
-
-
-    /// Gets the decoded JSON metadata associated with a vector ID.
-    /// - Parameter id: The ID of the vector
-    /// - Returns: The metadata string, or nil if no metadata exists
-    public func setJSONMetadata<T: Encodable>(
-        _ metadata: T,
-        for id: Int32,
-        encoder: JSONEncoder = JSONEncoder()
-    ) throws {
-        let rawMetadata = try encoder.encode(metadata)
-        try self.setMetadata(try utf8String(from: rawMetadata), for: id)
-    }
-
-    
-    /// Adds a vector to the index with the specified ID and metadata.
-    /// - Parameters:
-    ///   - vector: The vector to add (array of floats)
-    ///   - id: The integer ID to associate with the vector
-    ///   - metadata: Optional metadata string to associate with the vector
-    /// - Throws: An error if the vector dimension doesn't match the index dimension or if the add operation fails
-    public func addPoint<T: Encodable>(
-        _ vector: [Float],
-        id: Int32,
-        jsonMetadata: T,
-        encoder: JSONEncoder = JSONEncoder()
-    ) throws {
-        let rawMetadata = try encoder.encode(jsonMetadata)
-        try self.addPoint(vector, id: id, metadata: try utf8String(from: rawMetadata))
-    }
-}
