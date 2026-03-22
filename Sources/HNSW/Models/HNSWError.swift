@@ -10,6 +10,7 @@ public enum HNSWError: Error {
     case idExceedsMaxElements(maxElements: Int, attemptedId: Int)
     case pointAlreadyExists(id: Int)
     case vectorMismatch(expected: Int, actual: Int)
+    case spaceMismatch(expected: HNSWSpaceType, actual: HNSWSpaceType)
     case generalError(message: String)
     
     public var errorDescription: String {
@@ -22,6 +23,8 @@ public enum HNSWError: Error {
             return "Point with ID \(id) already exists"
         case .vectorMismatch(let expected, let actual):
             return "Vector dimension mismatch: expected \(expected), got \(actual)"
+        case .spaceMismatch(let expected, let actual):
+            return "Space type mismatch after load: expected \(expected), index reports \(actual)"
         case .generalError(let message):
             return message
         }

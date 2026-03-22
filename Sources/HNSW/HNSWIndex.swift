@@ -267,7 +267,7 @@ public final class HNSWIndex {
     /// Changes the maximum capacity of the index.
     /// - Parameter newSize: The new maximum capacity
     /// - Throws: An error if the resize operation fails
-    public func resizeIndex(to newSize: Int32) throws {
+    public func resizeIndex(to newSize: Int32) throws(HNSWError) {
         precondition(newSize >= 0, "New size must be non-negative")
         precondition(newSize >= Int32(elementCount), "New size must be greater than or equal to current element count")
         
@@ -276,28 +276,16 @@ public final class HNSWIndex {
         
         let result = hnswlib_resize_index(index, newSize)
         guard result == 0 else {
-            throw NSError(
-                domain: "HNSWIndex",
-                code: Int(result),
-                userInfo: [NSLocalizedDescriptionKey: "Failed to resize index"]
-            )
+            throw HNSWError.generalError(message: "Failed to resize index (native code: \(result))")
         }
         
         // Verify the resize operation maintained the correct state
         guard elementCount == currentCount else {
-            throw NSError(
-                domain: "HNSWIndex",
-                code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "Element count changed during resize"]
-            )
+            throw HNSWError.generalError(message: "Element count changed during resize")
         }
         
         guard maxElements == Int(newSize) else {
-            throw NSError(
-                domain: "HNSWIndex",
-                code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "Max elements not updated correctly"]
-            )
+            throw HNSWError.generalError(message: "Max elements not updated correctly after resize")
         }
     }
 
@@ -324,7 +312,7 @@ public final class HNSWIndex {
     ///   - path: The path to the index file
     ///   - maxElements: The maximum number of elements that can be stored in the index
     /// - Throws: An error if the file cannot be read
-    public func loadIndex(from path: String, maxElements: Int) throws {
+    public func loadIndex(from path: String, maxElements: Int) throws(HNSWError) {
         // Store space information before loading
         let spaceType = self.space
         
@@ -335,10 +323,9 @@ public final class HNSWIndex {
         }
         
         // Verify space after loading
-        guard self.space == spaceType else {
-            throw NSError(domain: "HNSWIndex", code: -1, userInfo: [
-                NSLocalizedDescriptionKey: "Space type changed during load: was \(spaceType), now \(self.space)"
-            ])
+        let loadedSpace = self.space
+        guard loadedSpace == spaceType else {
+            throw HNSWError.spaceMismatch(expected: spaceType, actual: loadedSpace)
         }
     }
 
