@@ -339,6 +339,12 @@ public final class HNSWIndex {
     }
 }
 
+private func utf8String(from data: Data) throws -> String {
+    guard let string = String(data: data, encoding: .utf8) else {
+        throw HNSWError.jsonEncodedMetadataNotUTF8
+    }
+    return string
+}
 
 extension HNSWIndex {
     /// Gets the decoded JSON metadata associated with a vector ID.
@@ -366,7 +372,7 @@ extension HNSWIndex {
         encoder: JSONEncoder = JSONEncoder()
     ) throws {
         let rawMetadata = try encoder.encode(metadata)
-        self.setMetadata(String(data: rawMetadata, encoding: .utf8)!, for: id)
+        self.setMetadata(try utf8String(from: rawMetadata), for: id)
     }
 
     
@@ -383,6 +389,6 @@ extension HNSWIndex {
         encoder: JSONEncoder = JSONEncoder()
     ) throws {
         let rawMetadata = try encoder.encode(jsonMetadata)
-        try self.addPoint(vector, id: id, metadata: String(data: rawMetadata, encoding: .utf8)!)
+        try self.addPoint(vector, id: id, metadata: try utf8String(from: rawMetadata))
     }
 }

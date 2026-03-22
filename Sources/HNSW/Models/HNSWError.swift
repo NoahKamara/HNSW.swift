@@ -11,6 +11,8 @@ public enum HNSWError: Error {
     case pointAlreadyExists(id: Int)
     case vectorMismatch(expected: Int, actual: Int)
     case spaceMismatch(expected: HNSWSpaceType, actual: HNSWSpaceType)
+    /// `JSONEncoder` output could not be read back as UTF-8 (should not occur for standard encoders).
+    case jsonEncodedMetadataNotUTF8
     case generalError(message: String)
     
     public var errorDescription: String {
@@ -25,6 +27,8 @@ public enum HNSWError: Error {
             return "Vector dimension mismatch: expected \(expected), got \(actual)"
         case .spaceMismatch(let expected, let actual):
             return "Space type mismatch after load: expected \(expected), index reports \(actual)"
+        case .jsonEncodedMetadataNotUTF8:
+            return "Encoded JSON metadata is not valid UTF-8"
         case .generalError(let message):
             return message
         }
