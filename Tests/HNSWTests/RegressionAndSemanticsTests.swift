@@ -128,6 +128,7 @@ struct PersistenceTests {
             defer {
                 try? FileManager.default.removeItem(at: partialURL)
                 try? FileManager.default.removeItem(at: URL(fileURLWithPath: partialURL.path + ".metadata"))
+                try? FileManager.default.removeItem(at: URL(fileURLWithPath: partialURL.path + ".index"))
             }
 
             let full = HNSWIndex(dimension: dim, maxElements: 10)
@@ -161,6 +162,63 @@ struct PersistenceTests {
             let q = [Float]([30, 40])
             let hits = try loaded.searchKnn(q, maxResults: 1)
             #expect(hits.first?.id == 0)
+        }
+    }
+
+    @Test
+    func loadIndexThrowsWhenSavedCosineSpaceLoadedIntoL2Wrapper() throws {
+        try HNSWTestPaths.withTemporaryIndexBase { url in
+            let index = HNSWIndex(dimension: 2, maxElements: 8, space: .cosine)
+            try index.addPoint([3, 4], id: 0)
+            try index.saveIndex(to: url.path)
+
+            let loaded = HNSWIndex(dimension: 2, maxElements: 8, space: .l2)
+            #expect(throws: HNSWError.spaceMismatch(expected: .l2, actual: .cosine)) {
+                try loaded.loadIndex(from: url.path, maxElements: 8)
+            }
+        }
+    }
+
+    @Test
+    func loadIndexThrowsWhenSavedL2SpaceLoadedIntoCosineWrapper() throws {
+        try HNSWTestPaths.withTemporaryIndexBase { url in
+            let index = HNSWIndex(dimension: 2, maxElements: 8, space: .l2)
+            try index.addPoint([10, 0], id: 0)
+            try index.saveIndex(to: url.path)
+
+            let loaded = HNSWIndex(dimension: 2, maxElements: 8, space: .cosine)
+            #expect(throws: HNSWError.spaceMismatch(expected: .cosine, actual: .l2)) {
+                try loaded.loadIndex(from: url.path, maxElements: 8)
+            }
+        }
+    }
+
+    @Test
+    func loadIndexThrowsWhenSavedDimensionDiffersFromWrapper() throws {
+        try HNSWTestPaths.withTemporaryIndexBase { url in
+            let index = HNSWIndex(dimension: 2, maxElements: 8)
+            try index.addPoint([1, 0], id: 0)
+            try index.saveIndex(to: url.path)
+
+            let loaded = HNSWIndex(dimension: 3, maxElements: 8)
+            #expect(throws: HNSWError.vectorMismatch(expected: 3, actual: 2)) {
+                try loaded.loadIndex(from: url.path, maxElements: 8)
+            }
+        }
+    }
+
+    @Test
+    func loadIndexThrowsWhenWrapperMetadataSidecarIsMissing() throws {
+        try HNSWTestPaths.withTemporaryIndexBase { url in
+            let index = HNSWIndex(dimension: 2, maxElements: 8)
+            try index.addPoint([1, 0], id: 0)
+            try index.saveIndex(to: url.path)
+            try FileManager.default.removeItem(at: URL(fileURLWithPath: url.path + ".index"))
+
+            let loaded = HNSWIndex(dimension: 2, maxElements: 8)
+            #expect(throws: HNSWError.generalError(message: "Missing index wrapper metadata")) {
+                try loaded.loadIndex(from: url.path, maxElements: 8)
+            }
         }
     }
 }

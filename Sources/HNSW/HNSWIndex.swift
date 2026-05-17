@@ -45,6 +45,12 @@ private func hnswMetadataStringFilterTrampoline(
     return box.predicate(metadata)
 }
 
+private let hnswLoadNativeFailure: Int32 = -1
+private let hnswLoadMissingWrapperMetadata: Int32 = -2
+private let hnswLoadInvalidWrapperMetadata: Int32 = -3
+private let hnswLoadSpaceMismatch: Int32 = -4
+private let hnswLoadDimensionMismatch: Int32 = -5
+
 /// A Swift wrapper around an HNSW (Hierarchical Navigable Small World) index backed by hnswlib.
 ///
 /// Store fixed-length vectors under non-negative integer labels, query *k* approximate nearest
@@ -93,7 +99,7 @@ public final class HNSWIndex {
         )
     }
 
-    /// The metric space selected at initialization or reported after load.
+    /// The metric space selected at initialization.
     public var space: HNSWSpaceType {
         HNSWSpaceType(cValue: hnswlib_get_space_type(self.index))
     }
@@ -456,7 +462,7 @@ public final class HNSWIndex {
 
     // MARK: Persistence
 
-    /// Writes a binary index snapshot to `path`.
+    /// Writes a binary index snapshot to `path`, plus required package metadata sidecars.
     /// - Parameter path: Filesystem path writable by the process.
     /// - Throws: ``HNSWError/generalError(message:)`` on I/O or native serialization failure.
     public func saveIndex(to path: String) throws {
@@ -468,24 +474,34 @@ public final class HNSWIndex {
 
     /// Replaces the receiver’s native index with contents loaded from `path`.
     /// - Parameters:
-    ///   - path: Filesystem path to a file previously written by ``saveIndex(to:)`` or a compatible hnswlib build.
+    ///   - path: Filesystem path to a file previously written by ``saveIndex(to:)``.
     ///   - maxElements: Capacity bound passed through to the native loader; must suit your workload.
-    /// - Throws: ``HNSWError/generalError(message:)`` on load failure, or ``HNSWError/spaceMismatch(expected:actual:)``
-    /// if the file’s space disagrees with this instance’s ``space`` before load.
+    /// - Throws: ``HNSWError/spaceMismatch(expected:actual:)`` or ``HNSWError/vectorMismatch(expected:actual:)`` when
+    /// the package metadata sidecar disagrees with this instance, and ``HNSWError/generalError(message:)`` on missing
+    /// or invalid metadata or native load failure.
     public func loadIndex(from path: String, maxElements: Int) throws(HNSWError) {
-        // Store space information before loading
-        let spaceType = self.space
-
-        // Try loading with original maxElements
         let result = hnswlib_load_index(self.index, path, Int32(maxElements))
         guard result == 0 else {
-            throw HNSWError.generalError(message: "Failed to load index")
-        }
-
-        // Verify space after loading
-        let loadedSpace = self.space
-        guard loadedSpace == spaceType else {
-            throw HNSWError.spaceMismatch(expected: spaceType, actual: loadedSpace)
+            switch result {
+            case hnswLoadNativeFailure:
+                throw HNSWError.generalError(message: "Failed to load index")
+            case hnswLoadMissingWrapperMetadata:
+                throw HNSWError.generalError(message: "Missing index wrapper metadata")
+            case hnswLoadInvalidWrapperMetadata:
+                throw HNSWError.generalError(message: "Invalid index wrapper metadata")
+            case hnswLoadSpaceMismatch:
+                throw HNSWError.spaceMismatch(
+                    expected: self.space,
+                    actual: HNSWSpaceType(cValue: hnswlib_get_last_loaded_space_type(self.index))
+                )
+            case hnswLoadDimensionMismatch:
+                throw HNSWError.vectorMismatch(
+                    expected: self.dimension,
+                    actual: Int(hnswlib_get_last_loaded_dim(self.index))
+                )
+            default:
+                throw HNSWError.generalError(message: "Unknown load error (native code: \(result))")
+            }
         }
     }
 

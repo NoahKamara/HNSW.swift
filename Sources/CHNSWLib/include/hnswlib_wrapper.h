@@ -17,6 +17,18 @@ typedef enum {
 } HNSWSpaceType;
 
 /**
+ * Result codes returned by hnswlib_load_index.
+ */
+typedef enum {
+    HNSW_LOAD_OK = 0,
+    HNSW_LOAD_NATIVE_FAILURE = -1,
+    HNSW_LOAD_MISSING_WRAPPER_METADATA = -2,
+    HNSW_LOAD_INVALID_WRAPPER_METADATA = -3,
+    HNSW_LOAD_SPACE_MISMATCH = -4,
+    HNSW_LOAD_DIMENSION_MISMATCH = -5
+} HNSWLoadResult;
+
+/**
  * Creates a new HNSW index with the specified parameters.
  * 
  * @param dim The dimensionality of the vectors
@@ -108,7 +120,7 @@ int hnswlib_save_index(void* index_ptr, const char* path);
  * @param index_ptr Pointer to the index
  * @param path The path to the index file
  * @param max_elements The maximum number of elements that can be stored in the index
- * @return 0 on success, non-zero on failure
+ * @return HNSWLoadResult
  */
 int hnswlib_load_index(void* index_ptr, const char* path, int max_elements);
 
@@ -253,6 +265,22 @@ void hnswlib_remove_metadata(void* index_ptr, int id);
  * @return The space type of the index
  */
 HNSWSpaceType hnswlib_get_space_type(void* index_ptr);
+
+/**
+ * Gets the space type read from the most recent wrapper metadata sidecar.
+ *
+ * @param index_ptr Pointer to the index
+ * @return The sidecar space type, meaningful after hnswlib_load_index has read valid wrapper metadata
+ */
+HNSWSpaceType hnswlib_get_last_loaded_space_type(void* index_ptr);
+
+/**
+ * Gets the dimension read from the most recent wrapper metadata sidecar.
+ *
+ * @param index_ptr Pointer to the index
+ * @return The sidecar dimension, meaningful after hnswlib_load_index has read valid wrapper metadata
+ */
+int hnswlib_get_last_loaded_dim(void* index_ptr);
 
 #ifdef __cplusplus
 }

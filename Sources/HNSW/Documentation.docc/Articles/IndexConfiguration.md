@@ -19,7 +19,7 @@ Choose vector dimension, capacity, graph connectivity, build-time breadth, and d
 - **L2**: Distance is Euclidean. Vectors are stored and compared as provided (no automatic normalization).
 - **Cosine**: The wrapper **normalizes** vectors on insert and normalizes query vectors before search so distances align with cosine-related behavior in the underlying library.
 
-Pick one space at creation time. If you ``HNSWIndex/loadIndex(from:maxElements:)``, the loaded index must match the space type of the instance you load into; otherwise ``HNSWError/spaceMismatch(expected:actual:)`` is thrown.
+Pick one space at creation time. If you ``HNSWIndex/loadIndex(from:maxElements:)``, the saved package metadata must match the space type of the instance you load into; otherwise ``HNSWError/spaceMismatch(expected:actual:)`` is thrown before the native graph is loaded.
 
 ### Query-time accuracy: `ef`
 

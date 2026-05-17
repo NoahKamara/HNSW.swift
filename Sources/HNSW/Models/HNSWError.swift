@@ -24,8 +24,7 @@ public enum HNSWError: Error, Equatable {
     /// A vector’s length does not match ``HNSWIndex/dimension``.
     case vectorMismatch(expected: Int, actual: Int)
 
-    /// After ``HNSWIndex/loadIndex(from:maxElements:)``, the file’s space type disagrees with the receiver’s
-    /// ``HNSWIndex/space``.
+    /// The saved index metadata’s space type disagrees with the receiver’s ``HNSWIndex/space``.
     case spaceMismatch(expected: HNSWSpaceType, actual: HNSWSpaceType)
 
     /// Encoded JSON metadata could not be interpreted as UTF-8 (unexpected for standard `JSONEncoder` output).

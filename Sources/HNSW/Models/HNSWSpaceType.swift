@@ -8,8 +8,8 @@ import CHNSWLib
 
 /// Distance metric used when building and querying an ``HNSWIndex``.
 ///
-/// Choose a space at index creation; ``HNSWIndex/loadIndex(from:maxElements:)`` verifies the loaded
-/// index reports the same space or throws ``HNSWError/spaceMismatch(expected:actual:)``.
+/// Choose a space at index creation; ``HNSWIndex/loadIndex(from:maxElements:)`` verifies the saved
+/// package metadata sidecar declares the same space or throws ``HNSWError/spaceMismatch(expected:actual:)``.
 public enum HNSWSpaceType: Sendable, Equatable, CustomStringConvertible {
     /// Squared Euclidean (L2) distance between vectors as stored.
     case l2

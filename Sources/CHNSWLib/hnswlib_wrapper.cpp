@@ -15,7 +15,67 @@ struct HNSWIndexWrapper {
     int dimension;
     std::unordered_map<int, std::string> metadata;  // Map of ID to metadata string
     HNSWSpaceType space_type;  // Store the space type
+    int last_loaded_dimension;
+    HNSWSpaceType last_loaded_space_type;
 };
+
+struct HNSWWrapperMetadata {
+    uint32_t magic;
+    uint32_t version;
+    int32_t dimension;
+    int32_t space_type;
+};
+
+static constexpr uint32_t HNSW_WRAPPER_METADATA_MAGIC = 0x48535731;  // "HSW1"
+static constexpr uint32_t HNSW_WRAPPER_METADATA_VERSION = 1;
+
+std::string wrapperMetadataPath(const std::string& path) {
+    return path + ".index";
+}
+
+void saveWrapperMetadata(const HNSWIndexWrapper& wrapper, const std::string& path) {
+    std::ofstream file(wrapperMetadataPath(path), std::ios::binary);
+    if (!file) {
+        throw std::runtime_error("Failed to open wrapper metadata file for writing");
+    }
+
+    HNSWWrapperMetadata metadata{
+        HNSW_WRAPPER_METADATA_MAGIC,
+        HNSW_WRAPPER_METADATA_VERSION,
+        static_cast<int32_t>(wrapper.dimension),
+        static_cast<int32_t>(wrapper.space_type)
+    };
+    file.write(reinterpret_cast<const char*>(&metadata), sizeof(metadata));
+    if (!file) {
+        throw std::runtime_error("Failed to write wrapper metadata");
+    }
+}
+
+HNSWLoadResult loadWrapperMetadata(HNSWWrapperMetadata& metadata, const std::string& path) {
+    std::ifstream file(wrapperMetadataPath(path), std::ios::binary);
+    if (!file) {
+        return HNSW_LOAD_MISSING_WRAPPER_METADATA;
+    }
+
+    file.read(reinterpret_cast<char*>(&metadata), sizeof(metadata));
+    if (file.gcount() != static_cast<std::streamsize>(sizeof(metadata))) {
+        return HNSW_LOAD_INVALID_WRAPPER_METADATA;
+    }
+
+    char extraByte;
+    if (file.read(&extraByte, 1)) {
+        return HNSW_LOAD_INVALID_WRAPPER_METADATA;
+    }
+
+    if (metadata.magic != HNSW_WRAPPER_METADATA_MAGIC ||
+        metadata.version != HNSW_WRAPPER_METADATA_VERSION ||
+        metadata.dimension <= 0 ||
+        (metadata.space_type != HNSW_SPACE_L2 && metadata.space_type != HNSW_SPACE_COSINE)) {
+        return HNSW_LOAD_INVALID_WRAPPER_METADATA;
+    }
+
+    return HNSW_LOAD_OK;
+}
 
 class LabelFilterFunctor : public hnswlib::BaseFilterFunctor {
 private:
@@ -110,7 +170,7 @@ extern "C" {
         }
         
         hnswlib::HierarchicalNSW<float>* index = new hnswlib::HierarchicalNSW<float>(space, max_elements, M, ef_construction);
-        HNSWIndexWrapper* wrapper = new HNSWIndexWrapper{index, space, dim, {}, space_type};
+        HNSWIndexWrapper* wrapper = new HNSWIndexWrapper{index, space, dim, {}, space_type, dim, space_type};
         return static_cast<void*>(wrapper);
     }
     
@@ -248,6 +308,7 @@ extern "C" {
         try {
             auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
             wrapper->index->saveIndex(path);
+            saveWrapperMetadata(*wrapper, path);
             saveMetadata(wrapper->metadata, path);
             return 0;
         } catch (...) {
@@ -258,6 +319,23 @@ extern "C" {
     int hnswlib_load_index(void* index_ptr, const char* path, int max_elements) {
         try {
             auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
+            HNSWWrapperMetadata metadata{};
+            HNSWLoadResult metadataResult = loadWrapperMetadata(metadata, path);
+            if (metadataResult != HNSW_LOAD_OK) {
+                return metadataResult;
+            }
+
+            wrapper->last_loaded_dimension = metadata.dimension;
+            wrapper->last_loaded_space_type = static_cast<HNSWSpaceType>(metadata.space_type);
+
+            if (wrapper->last_loaded_space_type != wrapper->space_type) {
+                return HNSW_LOAD_SPACE_MISMATCH;
+            }
+
+            if (wrapper->last_loaded_dimension != wrapper->dimension) {
+                return HNSW_LOAD_DIMENSION_MISMATCH;
+            }
+
             wrapper->index->loadIndex(path, wrapper->space, max_elements);
             wrapper->metadata.clear();
             loadMetadata(wrapper->metadata, path);
@@ -357,9 +435,19 @@ extern "C" {
         return wrapper->space_type;
     }
 
+    HNSWSpaceType hnswlib_get_last_loaded_space_type(void* index_ptr) {
+        auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
+        return wrapper->last_loaded_space_type;
+    }
+
     int hnswlib_get_dim(void* index_ptr) {
         auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
         return wrapper->dimension;
+    }
+
+    int hnswlib_get_last_loaded_dim(void* index_ptr) {
+        auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
+        return wrapper->last_loaded_dimension;
     }
 
     unsigned long hnswlib_get_M(void* index_ptr) {

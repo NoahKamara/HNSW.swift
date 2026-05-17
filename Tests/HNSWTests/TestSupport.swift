@@ -7,7 +7,7 @@
 import Foundation
 
 enum HNSWTestPaths {
-    /// Runs `body` with a unique base path; removes the index file and `.metadata` sidecar afterward.
+    /// Runs `body` with a unique base path; removes the index file and sidecars afterward.
     static func withTemporaryIndexBase<T>(
         _ body: (URL) throws -> T
     ) throws -> T {
@@ -17,6 +17,7 @@ enum HNSWTestPaths {
         defer {
             try? FileManager.default.removeItem(at: indexURL)
             try? FileManager.default.removeItem(at: URL(fileURLWithPath: indexURL.path + ".metadata"))
+            try? FileManager.default.removeItem(at: URL(fileURLWithPath: indexURL.path + ".index"))
         }
         return try body(indexURL)
     }
