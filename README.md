@@ -7,17 +7,16 @@ A Swift package that provides Swift bindings for [hnswlib](https://github.com/nm
 - Swift bindings for the lightweight, header-only hnswlib C++ library
 - Support for multiple distance metrics:
   - Squared L2 (Euclidean) distance
-  - Inner product
   - Cosine similarity
 - Full support for incremental index construction and updates
 - Support for element deletions and memory reuse
-- Thread-safe implementation
 - Support for macOS 11+ and iOS 16+
+- Actor-based container for serialized concurrent access
 
 ## Requirements
 
 - Swift 6.0 or later
-- macOS 11.0+ / iOS 16.0+
+- macOS 13.0+ / iOS 16.0+
 
 ## Installation
 
@@ -39,15 +38,15 @@ import HNSW
 // Create an HNSW index
 let dimension = 128
 let maxElements = 10_000
-let index = try HNSWIndex(dimension: dimension, maxElements: maxElements)
+let index = HNSWIndex(dimension: dimension, maxElements: maxElements)
 
 // Add vectors to the index
 let vector = [Float](repeating: 0.0, count: dimension)
-try index.add(vector: vector, id: 0)
+try index.addPoint(vector, id: 0)
 
 // Search for nearest neighbors
 let queryVector = [Float](repeating: 0.0, count: dimension)
-let results = try index.search(vector: queryVector, k: 10)
+let results = try index.searchKnn(queryVector, maxResults: 10)
 ```
 
 You can checkout the Tests/ directory for an example on how to use NLEmbeddings
@@ -57,6 +56,26 @@ You can checkout the Tests/ directory for an example on how to use NLEmbeddings
 - `Sources/HNSW/` - Swift implementation and public API
 - `Sources/CHNSWLib/` - C++ interop layer
 - `Tests/` - Unit tests
+- `Benchmarks/` - Benchmark suites (`swift package benchmark`)
+
+## Performance Testing
+
+There are two performance layers:
+
+- `swift-testing` performance budgets in `Tests/HNSWTests/PerformanceBudgetTests.swift`
+- percentile-based benchmarks in `Benchmarks/HNSWBenchmarks`
+
+Run budget tests explicitly:
+
+```bash
+RUN_PERF=1 swift test -c release
+```
+
+Run benchmark suite:
+
+```bash
+swift package benchmark --target HNSWBenchmarks
+```
 
 ## Contributing
 
