@@ -192,6 +192,18 @@ struct AddAndErrorTests {
             try index.addPoint([0, 1], id: -1)
         }
     }
+
+    @Test
+    func setMetadataForMissingLabelThrowsWithoutCreatingMetadata() throws {
+        let index = HNSWIndex(dimension: 2, maxElements: 4)
+
+        #expect(throws: HNSWError.labelNotFound(id: 1)) {
+            try index.setMetadata("phantom", for: 1)
+        }
+
+        #expect(try index.labelExists(id: 1) == false)
+        #expect(try index.getMetadata(for: 1) == nil)
+    }
 }
 
 @Suite("HNSWContainer")

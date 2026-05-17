@@ -18,6 +18,9 @@ public enum HNSWError: Error, Equatable {
     /// A point with this label was already inserted.
     case pointAlreadyExists(id: Int)
 
+    /// No point exists for the requested label.
+    case labelNotFound(id: Int)
+
     /// A vector’s length does not match ``HNSWIndex/dimension``.
     case vectorMismatch(expected: Int, actual: Int)
 
@@ -42,6 +45,8 @@ public enum HNSWError: Error, Equatable {
             "ID \(id) exceeds maximum elements (\(max))"
         case .pointAlreadyExists(let id):
             "Point with ID \(id) already exists"
+        case .labelNotFound(let id):
+            "No point exists with ID \(id)"
         case .vectorMismatch(let expected, let actual):
             "Vector dimension mismatch: expected \(expected), got \(actual)"
         case .spaceMismatch(let expected, let actual):

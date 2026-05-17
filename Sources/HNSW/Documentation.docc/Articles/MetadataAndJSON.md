@@ -12,6 +12,7 @@ Each label can carry an optional metadata string:
 - ``HNSWIndex/getMetadata(for:)``, ``HNSWIndex/setMetadata(_:for:)``, and ``HNSWIndex/removeMetadata(for:)`` read or update that string.
 
 Metadata is stored in the index’s side table; keep strings reasonably small if you care about memory.
+Updating metadata requires an existing label; setting metadata for a label that was never added throws ``HNSWError/labelNotFound(id:)``.
 
 ### JSON helpers
 

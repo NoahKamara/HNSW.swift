@@ -42,7 +42,7 @@ public extension HNSWIndex {
     ///   - id: Non-negative label to update.
     ///   - encoder: Encoder instance; defaults to `JSONEncoder()`.
     /// - Throws: ``HNSWError/jsonEncodedMetadataNotUTF8`` if the encoded bytes are not UTF-8, encoding errors from
-    /// `JSONEncoder`, or ``HNSWError/invalidLabel(id:)``.
+    /// `JSONEncoder`, ``HNSWError/invalidLabel(id:)``, or ``HNSWError/labelNotFound(id:)``.
     func setJSONMetadata(
         _ metadata: some Encodable,
         for id: Int32,

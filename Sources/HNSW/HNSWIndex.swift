@@ -340,9 +340,12 @@ public final class HNSWIndex {
     /// - Parameters:
     ///   - metadata: New metadata value, or `nil` to remove the string association.
     ///   - id: Non-negative label.
-    /// - Throws: ``HNSWError/invalidLabel(id:)`` when `id` is negative.
+    /// - Throws: ``HNSWError/invalidLabel(id:)`` when `id` is negative, or
+    ///   ``HNSWError/labelNotFound(id:)`` when no point exists for `id`.
     public func setMetadata(_ metadata: String?, for id: Int32) throws(HNSWError) {
-        try self.requireValidLabelID(id)
+        guard try self.labelExists(id: id) else {
+            throw HNSWError.labelNotFound(id: Int(id))
+        }
         hnswlib_set_metadata(self.index, id, metadata)
     }
 
