@@ -56,14 +56,11 @@ You can checkout the Tests/ directory for an example on how to use NLEmbeddings
 - `Sources/HNSW/` - Swift implementation and public API
 - `Sources/CHNSWLib/` - C++ interop layer
 - `Tests/` - Unit tests
-- `Benchmarks/` - Benchmark suites (`swift package benchmark`)
 
 ## Performance Testing
 
-There are two performance layers:
-
-- `swift-testing` performance budgets in `Tests/HNSWTests/PerformanceBudgetTests.swift`
-- percentile-based benchmarks in `Benchmarks/HNSWBenchmarks`
+Performance-budget tests live in `Tests/HNSWTests/PerformanceBudgetTests.swift`. They are disabled by default so normal
+test runs stay quick and deterministic.
 
 Run budget tests explicitly:
 
@@ -71,10 +68,15 @@ Run budget tests explicitly:
 RUN_PERF=1 swift test -c release
 ```
 
-Run benchmark suite:
+Default budgets can be overridden with environment variables when running on slower hosts or when tightening local
+regression thresholds:
 
 ```bash
-swift package benchmark --target HNSWBenchmarks
+HNSW_PERF_L2_INSERT_MS=1000 \
+HNSW_PERF_L2_SEARCH_P95_MS=1 \
+HNSW_PERF_METADATA_FILTER_P95_MS=5 \
+HNSW_PERF_COSINE_SEARCH_P95_MS=1 \
+RUN_PERF=1 swift test -c release --filter PerformanceBudgetTests
 ```
 
 ## Contributing
