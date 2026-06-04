@@ -147,28 +147,133 @@ public final class HNSWIndex {
         _ query: [Float],
         maxResults: Int
     ) throws(HNSWError) -> [HNSWSearchResult] {
+        var ids = [Int32](repeating: -1, count: maxResults)
+        var distances = [Float](repeating: 0, count: maxResults)
+        let resultCount = try self.searchKnn(query, maxResults: maxResults, ids: &ids, distances: &distances)
+
+        return zip(ids, distances)
+            .prefix(resultCount)
+            .map { HNSWSearchResult(id: $0, distance: $1) }
+    }
+
+    /// Performs unfiltered k-nearest neighbor search and writes results into caller-provided buffers.
+    ///
+    /// Use this overload on high-QPS paths to reuse `ids` and `distances` arrays across searches. The arrays are grown
+    /// to `maxResults` when needed, but otherwise retain their storage. Only the first returned-count entries are
+    /// valid.
+    /// - Returns: Number of valid entries written to `ids` and `distances`.
+    public func searchKnn(
+        _ query: [Float],
+        maxResults: Int,
+        ids: inout [Int32],
+        distances: inout [Float]
+    ) throws(HNSWError) -> Int {
         guard query.count == self.dimension else {
             throw HNSWError.vectorMismatch(expected: self.dimension, actual: query.count)
         }
 
-        // Normalize query vector if using cosine similarity space
         let normalizedQuery = self.space == .cosine ? self.normalize(query) : query
+        return normalizedQuery.withUnsafeBufferPointer { queryPtr in
+            self.searchKnn(queryPtr.baseAddress, maxResults: maxResults, ids: &ids, distances: &distances)
+        }
+    }
 
+    /// Performs unfiltered search for a query that is already normalized for cosine indexes.
+    ///
+    /// For ``HNSWSpaceType/cosine``, `query` must already have unit length. This skips the wrapper’s normalization
+    /// copy.
+    /// For ``HNSWSpaceType/l2``, this is equivalent to ``searchKnn(_:maxResults:)``.
+    public func searchKnnNormalized(
+        _ query: [Float],
+        maxResults: Int
+    ) throws(HNSWError) -> [HNSWSearchResult] {
         var ids = [Int32](repeating: -1, count: maxResults)
         var distances = [Float](repeating: 0, count: maxResults)
-
-        normalizedQuery.withUnsafeBufferPointer { ptr in
-            hnswlib_search_knn(self.index, ptr.baseAddress, &ids, &distances, Int32(maxResults))
-        }
-
-        let missing = ids
-            .reversed()
-            .prefix(while: { $0 == -1 })
-            .count
+        let resultCount = try self.searchKnnNormalized(
+            query,
+            maxResults: maxResults,
+            ids: &ids,
+            distances: &distances
+        )
 
         return zip(ids, distances)
-            .prefix(maxResults - missing)
+            .prefix(resultCount)
             .map { HNSWSearchResult(id: $0, distance: $1) }
+    }
+
+    /// Performs unfiltered search for an already-normalized query and writes results into reusable buffers.
+    ///
+    /// For ``HNSWSpaceType/cosine``, `query` must already have unit length. Only the first returned-count entries are
+    /// valid.
+    /// - Returns: Number of valid entries written to `ids` and `distances`.
+    public func searchKnnNormalized(
+        _ query: [Float],
+        maxResults: Int,
+        ids: inout [Int32],
+        distances: inout [Float]
+    ) throws(HNSWError) -> Int {
+        guard query.count == self.dimension else {
+            throw HNSWError.vectorMismatch(expected: self.dimension, actual: query.count)
+        }
+
+        return query.withUnsafeBufferPointer { queryPtr in
+            self.searchKnn(queryPtr.baseAddress, maxResults: maxResults, ids: &ids, distances: &distances)
+        }
+    }
+
+    /// Searches for up to `k` nearest neighbors among labels enabled in a dense native allowlist.
+    ///
+    /// Unlike Swift closure filters, this filter is evaluated entirely in C++ during graph search. Use
+    /// ``HNSWLabelAllowlist`` when labels are bounded and you can maintain/reuse the allowlist bytes outside the query
+    /// loop.
+    public func searchKnn(
+        _ query: [Float],
+        maxResults: Int,
+        allowlist: HNSWLabelAllowlist
+    ) throws(HNSWError) -> [HNSWSearchResult] {
+        var ids = [Int32](repeating: -1, count: maxResults)
+        var distances = [Float](repeating: 0, count: maxResults)
+        let resultCount = try self.searchKnn(
+            query,
+            maxResults: maxResults,
+            allowlist: allowlist,
+            ids: &ids,
+            distances: &distances
+        )
+
+        return zip(ids, distances)
+            .prefix(resultCount)
+            .map { HNSWSearchResult(id: $0, distance: $1) }
+    }
+
+    /// Native allowlist filtered search that writes results into caller-provided buffers.
+    ///
+    /// The arrays are grown to `maxResults` when needed. Only the first returned-count entries are valid.
+    /// - Returns: Number of valid entries written to `ids` and `distances`.
+    public func searchKnn(
+        _ query: [Float],
+        maxResults: Int,
+        allowlist: HNSWLabelAllowlist,
+        ids: inout [Int32],
+        distances: inout [Float]
+    ) throws(HNSWError) -> Int {
+        guard query.count == self.dimension else {
+            throw HNSWError.vectorMismatch(expected: self.dimension, actual: query.count)
+        }
+
+        let normalizedQuery = self.space == .cosine ? self.normalize(query) : query
+        return normalizedQuery.withUnsafeBufferPointer { queryPtr in
+            allowlist.storage.withUnsafeBufferPointer { allowlistPtr in
+                self.searchKnn(
+                    queryPtr.baseAddress,
+                    maxResults: maxResults,
+                    allowlist: allowlistPtr.baseAddress,
+                    allowlistCount: allowlist.storage.count,
+                    ids: &ids,
+                    distances: &distances
+                )
+            }
+        }
     }
 
     /// Searches for up to `k` nearest neighbors among labels that pass `filter`, using hnswlib’s
@@ -212,25 +317,24 @@ public final class HNSWIndex {
         let userData = Unmanaged.passRetained(box).toOpaque()
         defer { Unmanaged<LabelFilterBox>.fromOpaque(userData).release() }
 
-        normalizedQuery.withUnsafeBufferPointer { ptr in
-            hnswlib_search_knn_with_label_filter(
-                self.index,
-                ptr.baseAddress,
-                &ids,
-                &distances,
-                Int32(maxResults),
-                userData,
-                hnswLabelFilterTrampoline
-            )
+        let resultCount = normalizedQuery.withUnsafeBufferPointer { queryPtr in
+            ids.withUnsafeMutableBufferPointer { idsPtr in
+                distances.withUnsafeMutableBufferPointer { distancesPtr in
+                    Int(hnswlib_search_knn_with_label_filter(
+                        self.index,
+                        queryPtr.baseAddress,
+                        idsPtr.baseAddress,
+                        distancesPtr.baseAddress,
+                        Int32(maxResults),
+                        userData,
+                        hnswLabelFilterTrampoline
+                    ))
+                }
+            }
         }
 
-        let missing = ids
-            .reversed()
-            .prefix(while: { $0 == -1 })
-            .count
-
         return zip(ids, distances)
-            .prefix(maxResults - missing)
+            .prefix(resultCount)
             .map { HNSWSearchResult(id: $0, distance: $1) }
     }
 
@@ -268,25 +372,24 @@ public final class HNSWIndex {
         let userData = Unmanaged.passRetained(box).toOpaque()
         defer { Unmanaged<MetadataStringFilterBox>.fromOpaque(userData).release() }
 
-        normalizedQuery.withUnsafeBufferPointer { ptr in
-            hnswlib_search_knn_with_label_filter(
-                self.index,
-                ptr.baseAddress,
-                &ids,
-                &distances,
-                Int32(maxResults),
-                userData,
-                hnswMetadataStringFilterTrampoline
-            )
+        let resultCount = normalizedQuery.withUnsafeBufferPointer { queryPtr in
+            ids.withUnsafeMutableBufferPointer { idsPtr in
+                distances.withUnsafeMutableBufferPointer { distancesPtr in
+                    Int(hnswlib_search_knn_with_label_filter(
+                        self.index,
+                        queryPtr.baseAddress,
+                        idsPtr.baseAddress,
+                        distancesPtr.baseAddress,
+                        Int32(maxResults),
+                        userData,
+                        hnswMetadataStringFilterTrampoline
+                    ))
+                }
+            }
         }
 
-        let missing = ids
-            .reversed()
-            .prefix(while: { $0 == -1 })
-            .count
-
         return zip(ids, distances)
-            .prefix(maxResults - missing)
+            .prefix(resultCount)
             .map { (id: Int($0), distance: $1) }
     }
 
@@ -304,10 +407,29 @@ public final class HNSWIndex {
         }
         try self.requireValidLabelID(id)
 
-        // Normalize vector if using cosine similarity space
         let normalizedVector = self.space == .cosine ? self.normalize(vector) : vector
+        try self.addPointNative(normalizedVector, id: id, metadata: metadata)
+    }
 
-        try normalizedVector.withUnsafeBufferPointer { ptr in
+    /// Inserts a vector that is already normalized for cosine indexes.
+    ///
+    /// For ``HNSWSpaceType/cosine``, `vector` must already have unit length. This skips the wrapper’s normalization
+    /// copy on insert. For ``HNSWSpaceType/l2``, this is equivalent to ``addPoint(_:id:metadata:)``.
+    public func addNormalizedPoint(_ vector: [Float], id: Int32, metadata: String? = nil) throws {
+        guard vector.count == self.dimension else {
+            throw HNSWError.vectorMismatch(expected: self.dimension, actual: vector.count)
+        }
+        try self.requireValidLabelID(id)
+
+        try self.addPointNative(vector, id: id, metadata: metadata)
+    }
+
+    private func addPointNative(
+        _ vector: [Float],
+        id: Int32,
+        metadata: String?
+    ) throws {
+        try vector.withUnsafeBufferPointer { ptr in
             let result: Int32 = if let metadata {
                 hnswlib_add_point_with_metadata(self.index, ptr.baseAddress, id, metadata)
             } else {
@@ -327,6 +449,62 @@ public final class HNSWIndex {
                 default:
                     throw HNSWError.generalError(message: "Unknown error")
                 }
+            }
+        }
+    }
+
+    private func searchKnn(
+        _ query: UnsafePointer<Float>?,
+        maxResults: Int,
+        ids: inout [Int32],
+        distances: inout [Float]
+    ) -> Int {
+        if ids.count < maxResults {
+            ids = [Int32](repeating: -1, count: maxResults)
+        }
+        if distances.count < maxResults {
+            distances = [Float](repeating: 0, count: maxResults)
+        }
+
+        return ids.withUnsafeMutableBufferPointer { idsPtr in
+            distances.withUnsafeMutableBufferPointer { distancesPtr in
+                Int(hnswlib_search_knn(
+                    self.index,
+                    query,
+                    idsPtr.baseAddress,
+                    distancesPtr.baseAddress,
+                    Int32(maxResults)
+                ))
+            }
+        }
+    }
+
+    private func searchKnn(
+        _ query: UnsafePointer<Float>?,
+        maxResults: Int,
+        allowlist: UnsafePointer<UInt8>?,
+        allowlistCount: Int,
+        ids: inout [Int32],
+        distances: inout [Float]
+    ) -> Int {
+        if ids.count < maxResults {
+            ids = [Int32](repeating: -1, count: maxResults)
+        }
+        if distances.count < maxResults {
+            distances = [Float](repeating: 0, count: maxResults)
+        }
+
+        return ids.withUnsafeMutableBufferPointer { idsPtr in
+            distances.withUnsafeMutableBufferPointer { distancesPtr in
+                Int(hnswlib_search_knn_with_allowlist(
+                    self.index,
+                    query,
+                    idsPtr.baseAddress,
+                    distancesPtr.baseAddress,
+                    Int32(maxResults),
+                    allowlist,
+                    Int32(allowlistCount)
+                ))
             }
         }
     }
@@ -391,7 +569,8 @@ public final class HNSWIndex {
     /// Returns whether the given external label is present in the index, including labels that are only soft-deleted.
     ///
     /// Use this when you need to know if a label still has a slot in the graph (for example, to reconcile an external
-    /// store with ``maxElements`` capacity). Soft-deleted labels remain in the lookup map until replaced or the index is
+    /// store with ``maxElements`` capacity). Soft-deleted labels remain in the lookup map until replaced or the index
+    /// is
     /// rebuilt; for “would this label appear in an unfiltered search?” use ``isLabelActive(id:)`` instead.
     /// - Parameter id: Non-negative label (same integer as ``addPoint(_:id:metadata:)`` / ``markDeleted(_:)``).
     /// - Returns: `true` if the label exists in the native `label_lookup_`, `false` if it was never added or was fully

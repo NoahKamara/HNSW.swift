@@ -66,11 +66,12 @@ int hnswlib_add_point(void* index_ptr, const float* vector, int id);
  * 
  * @param index_ptr Pointer to the index
  * @param query The query vector (array of floats)
- * @param ids Array to store the IDs of the k nearest neighbors (ascending distance, nearest first)
- * @param distances Array to store the distances to the k nearest neighbors (same order as ids)
+ * @param ids Array to store the IDs of the nearest neighbors (ascending distance, nearest first)
+ * @param distances Array to store the distances to the nearest neighbors (same order as ids)
  * @param k The number of nearest neighbors to find
+ * @return The number of valid entries written to ids/distances.
  */
-void hnswlib_search_knn(void* index_ptr, const float* query, int* ids, float* distances, int k);
+int hnswlib_search_knn(void* index_ptr, const float* query, int* ids, float* distances, int k);
 
 /**
  * Per-query label filter. @p labelId is the external label (the same integer id used with add_point).
@@ -82,12 +83,12 @@ typedef bool (*HNSWLabelFilterFn)(void* userData, int32_t labelId);
  * Searches for k nearest neighbors whose labels pass the filter, evaluated during the graph walk.
  *
  * Valid entries in @p ids and @p distances are ascending by distance (nearest first); fewer than @p k
- * when the filter is selective.
+ * when the filter is selective. Returns the number of valid entries written.
  *
  * @param userData Opaque pointer passed to @p filterFn
  * @param filterFn Called for each candidate label; must not be NULL
  */
-void hnswlib_search_knn_with_label_filter(
+int hnswlib_search_knn_with_label_filter(
     void* index_ptr,
     const float* query,
     int* ids,
@@ -95,6 +96,21 @@ void hnswlib_search_knn_with_label_filter(
     int k,
     void* userData,
     HNSWLabelFilterFn filterFn);
+
+/**
+ * Searches for k nearest neighbors whose integer labels are enabled in a dense byte allowlist.
+ *
+ * A label is allowed when label >= 0, label < allowlistCount, and allowlist[label] is non-zero. Returns the number of
+ * valid entries written to ids/distances.
+ */
+int hnswlib_search_knn_with_allowlist(
+    void* index_ptr,
+    const float* query,
+    int* ids,
+    float* distances,
+    int k,
+    const uint8_t* allowlist,
+    int allowlistCount);
 
 /**
  * Sets the query time accuracy/speed trade-off parameter.

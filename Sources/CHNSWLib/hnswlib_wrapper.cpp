@@ -3,7 +3,6 @@
 #include "hnswlib/hnswlib.h"
 #include <vector>
 #include <queue>
-#include <unordered_map>
 #include <string>
 #include <functional>
 #include <cstring>
@@ -13,7 +12,8 @@ struct HNSWIndexWrapper {
     hnswlib::HierarchicalNSW<float>* index;
     hnswlib::SpaceInterface<float>* space;  // Store the space interface
     int dimension;
-    std::unordered_map<int, std::string> metadata;  // Map of ID to metadata string
+    std::vector<std::string> metadata;  // Dense metadata storage keyed by external label
+    std::vector<uint8_t> has_metadata;
     HNSWSpaceType space_type;  // Store the space type
     int last_loaded_dimension;
     HNSWSpaceType last_loaded_space_type;
@@ -90,8 +90,25 @@ public:
     }
 };
 
+class DenseAllowListFilterFunctor : public hnswlib::BaseFilterFunctor {
+private:
+    const uint8_t* allowlist;
+    size_t allowlist_count;
+
+public:
+    DenseAllowListFilterFunctor(const uint8_t* allowlist, size_t allowlist_count)
+        : allowlist(allowlist), allowlist_count(allowlist_count) {}
+
+    bool operator()(hnswlib::labeltype id) override {
+        return id < allowlist_count && allowlist[id] != 0;
+    }
+};
+
 // Add these functions before the extern "C" block
-void saveMetadata(const std::unordered_map<int, std::string>& metadata, const std::string& path) {
+void saveMetadata(
+    const std::vector<std::string>& metadata,
+    const std::vector<uint8_t>& has_metadata,
+    const std::string& path) {
     std::string metadataPath = path + ".metadata";
     std::ofstream file(metadataPath, std::ios::binary);
     if (!file) {
@@ -99,22 +116,35 @@ void saveMetadata(const std::unordered_map<int, std::string>& metadata, const st
     }
     
     // Write number of entries
-    size_t size = metadata.size();
+    size_t size = 0;
+    for (uint8_t has_entry : has_metadata) {
+        if (has_entry) {
+            ++size;
+        }
+    }
     file.write(reinterpret_cast<const char*>(&size), sizeof(size));
     
     // Write each entry
-    for (const auto& pair : metadata) {
+    for (size_t id = 0; id < has_metadata.size(); ++id) {
+        if (!has_metadata[id]) {
+            continue;
+        }
+
         // Write ID
-        file.write(reinterpret_cast<const char*>(&pair.first), sizeof(pair.first));
+        int stored_id = static_cast<int>(id);
+        file.write(reinterpret_cast<const char*>(&stored_id), sizeof(stored_id));
         
         // Write string length and content
-        size_t strLen = pair.second.length();
+        size_t strLen = metadata[id].length();
         file.write(reinterpret_cast<const char*>(&strLen), sizeof(strLen));
-        file.write(pair.second.c_str(), strLen);
+        file.write(metadata[id].c_str(), strLen);
     }
 }
 
-void loadMetadata(std::unordered_map<int, std::string>& metadata, const std::string& path) {
+void loadMetadata(
+    std::vector<std::string>& metadata,
+    std::vector<uint8_t>& has_metadata,
+    const std::string& path) {
     std::string metadataPath = path + ".metadata";
     std::ifstream file(metadataPath, std::ios::binary);
     if (!file) {
@@ -137,26 +167,12 @@ void loadMetadata(std::unordered_map<int, std::string>& metadata, const std::str
         std::string str(strLen, '\0');
         file.read(&str[0], strLen);
         
-        metadata[id] = str;
+        if (id >= 0 && static_cast<size_t>(id) < metadata.size()) {
+            metadata[id] = str;
+            has_metadata[id] = 1;
+        }
     }
 }
-
-namespace {
-
-// searchKnn fills a max-heap by distance; draining yields farthest-first. Expose nearest-first.
-void fillNearestFirst(
-    const std::vector<std::pair<float, hnswlib::labeltype>>& heapDrainOrder,
-    int* ids,
-    float* distances) {
-    const size_t n = heapDrainOrder.size();
-    for (size_t i = 0; i < n; ++i) {
-        const auto& p = heapDrainOrder[n - 1 - i];
-        ids[i] = static_cast<int>(p.second);
-        distances[i] = p.first;
-    }
-}
-
-}  // namespace
 
 extern "C" {
     using namespace hnswlib;
@@ -170,7 +186,16 @@ extern "C" {
         }
         
         hnswlib::HierarchicalNSW<float>* index = new hnswlib::HierarchicalNSW<float>(space, max_elements, M, ef_construction);
-        HNSWIndexWrapper* wrapper = new HNSWIndexWrapper{index, space, dim, {}, space_type, dim, space_type};
+        HNSWIndexWrapper* wrapper = new HNSWIndexWrapper{
+            index,
+            space,
+            dim,
+            std::vector<std::string>(max_elements),
+            std::vector<uint8_t>(max_elements, 0),
+            space_type,
+            dim,
+            space_type
+        };
         return static_cast<void*>(wrapper);
     }
     
@@ -229,6 +254,7 @@ extern "C" {
             wrapper->index->addPoint(vector, id);
             if (metadata != nullptr) {
                 wrapper->metadata[id] = std::string(metadata);
+                wrapper->has_metadata[id] = 1;
             }
             return 0;  // Success
         } catch (const std::exception& e) {
@@ -238,41 +264,54 @@ extern "C" {
     
     const char* hnswlib_get_metadata(void* index_ptr, int id) {
         auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
-        auto it = wrapper->metadata.find(id);
-        if (it != wrapper->metadata.end()) {
-            return it->second.c_str();
+        if (id >= 0 &&
+            static_cast<size_t>(id) < wrapper->metadata.size() &&
+            wrapper->has_metadata[id]) {
+            return wrapper->metadata[id].c_str();
         }
         return nullptr;
     }
     
     void hnswlib_set_metadata(void* index_ptr, int id, const char* metadata) {
         auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
+        if (id < 0 || static_cast<size_t>(id) >= wrapper->metadata.size()) {
+            return;
+        }
         if (metadata != nullptr) {
             wrapper->metadata[id] = std::string(metadata);
+            wrapper->has_metadata[id] = 1;
         } else {
-            wrapper->metadata.erase(id);
+            wrapper->metadata[id].clear();
+            wrapper->has_metadata[id] = 0;
         }
     }
     
     void hnswlib_remove_metadata(void* index_ptr, int id) {
         auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
-        wrapper->metadata.erase(id);
+        if (id >= 0 && static_cast<size_t>(id) < wrapper->metadata.size()) {
+            wrapper->metadata[id].clear();
+            wrapper->has_metadata[id] = 0;
+        }
     }
     
-    void hnswlib_search_knn(void* index_ptr, const float* query, int* ids, float* distances, int k) {
+    int hnswlib_search_knn(void* index_ptr, const float* query, int* ids, float* distances, int k) {
         auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
         std::priority_queue<std::pair<float, labeltype>> result = wrapper->index->searchKnn(query, k);
-        
-        std::vector<std::pair<float, labeltype>> sorted_results;
+
+        int count = static_cast<int>(result.size());
+        int index = count;
         while (!result.empty()) {
-            sorted_results.push_back(result.top());
+            const auto& top = result.top();
+            --index;
+            ids[index] = static_cast<int>(top.second);
+            distances[index] = top.first;
             result.pop();
         }
 
-        fillNearestFirst(sorted_results, ids, distances);
+        return count;
     }
 
-    void hnswlib_search_knn_with_label_filter(
+    int hnswlib_search_knn_with_label_filter(
         void* index_ptr,
         const float* query,
         int* ids,
@@ -285,13 +324,43 @@ extern "C" {
         std::priority_queue<std::pair<float, labeltype>> result =
             wrapper->index->searchKnn(query, static_cast<size_t>(k), &filter);
 
-        std::vector<std::pair<float, labeltype>> sorted_results;
+        int count = static_cast<int>(result.size());
+        int index = count;
         while (!result.empty()) {
-            sorted_results.push_back(result.top());
+            const auto& top = result.top();
+            --index;
+            ids[index] = static_cast<int>(top.second);
+            distances[index] = top.first;
             result.pop();
         }
 
-        fillNearestFirst(sorted_results, ids, distances);
+        return count;
+    }
+
+    int hnswlib_search_knn_with_allowlist(
+        void* index_ptr,
+        const float* query,
+        int* ids,
+        float* distances,
+        int k,
+        const uint8_t* allowlist,
+        int allowlistCount) {
+        auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
+        DenseAllowListFilterFunctor filter(allowlist, static_cast<size_t>(allowlistCount));
+        std::priority_queue<std::pair<float, labeltype>> result =
+            wrapper->index->searchKnn(query, static_cast<size_t>(k), &filter);
+
+        int count = static_cast<int>(result.size());
+        int index = count;
+        while (!result.empty()) {
+            const auto& top = result.top();
+            --index;
+            ids[index] = static_cast<int>(top.second);
+            distances[index] = top.first;
+            result.pop();
+        }
+
+        return count;
     }
 
     int hnswlib_set_ef(void* index_ptr, int ef) {
@@ -309,7 +378,7 @@ extern "C" {
             auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
             wrapper->index->saveIndex(path);
             saveWrapperMetadata(*wrapper, path);
-            saveMetadata(wrapper->metadata, path);
+            saveMetadata(wrapper->metadata, wrapper->has_metadata, path);
             return 0;
         } catch (...) {
             return -1;
@@ -337,8 +406,9 @@ extern "C" {
             }
 
             wrapper->index->loadIndex(path, wrapper->space, max_elements);
-            wrapper->metadata.clear();
-            loadMetadata(wrapper->metadata, path);
+            wrapper->metadata.assign(wrapper->index->max_elements_, std::string());
+            wrapper->has_metadata.assign(wrapper->index->max_elements_, 0);
+            loadMetadata(wrapper->metadata, wrapper->has_metadata, path);
             return 0;
         } catch (...) {
             return -1;
@@ -423,6 +493,9 @@ extern "C" {
             if (wrapper->index->max_elements_ != new_size) {
                 return -3;  // Max elements not updated correctly
             }
+
+            wrapper->metadata.resize(new_size);
+            wrapper->has_metadata.resize(new_size, 0);
             
             return 0;
         } catch (...) {

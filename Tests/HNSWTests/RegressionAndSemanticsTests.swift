@@ -59,6 +59,58 @@ struct SearchSemanticsTests {
         assertSameSearchOrder(u, f)
     }
 
+    @Test
+    func reusableBuffersMatchAllocatedSearchResults() throws {
+        let index = HNSWIndex(dimension: 2, maxElements: 8, space: .l2)
+        try index.addPoint([0, 0], id: 0)
+        try index.addPoint([1, 0], id: 1)
+        try index.addPoint([3, 0], id: 2)
+
+        let allocated = try index.searchKnn([0.2, 0], maxResults: 2)
+        var ids: [Int32] = []
+        var distances: [Float] = []
+        let count = try index.searchKnn([0.2, 0], maxResults: 2, ids: &ids, distances: &distances)
+
+        #expect(count == allocated.count)
+        #expect(Array(ids.prefix(count)) == allocated.map(\.id))
+        for (a, b) in zip(distances.prefix(count), allocated.map(\.distance)) {
+            #expect(abs(a - b) < 1e-5)
+        }
+    }
+
+    @Test
+    func normalizedCosineAPIsMatchWrapperNormalizedSearch() throws {
+        let index = HNSWIndex(dimension: 2, maxElements: 8, space: .cosine)
+        try index.addNormalizedPoint([1, 0], id: 0)
+        try index.addNormalizedPoint([0, 1], id: 1)
+
+        let normalized = try index.searchKnnNormalized([1, 0], maxResults: 2)
+        let wrapperNormalized = try index.searchKnn([3, 0], maxResults: 2)
+
+        #expect(normalized.count == wrapperNormalized.count)
+        #expect(normalized.map(\.id) == wrapperNormalized.map(\.id))
+    }
+
+    @Test
+    func nativeAllowlistSearchMatchesLabelFilter() throws {
+        let index = HNSWIndex(dimension: 2, maxElements: 16, M: 8, efConstruction: 40)
+        for i in 0..<10 {
+            try index.addPoint([Float(i), 0], id: Int32(i))
+        }
+        index.setEf(32)
+
+        let allowed = Set<Int32>([2, 4, 6, 8])
+        let allowlist = HNSWLabelAllowlist(maxElements: index.maxElements, allowing: allowed)
+        let query: [Float] = [5, 0]
+        let native = try index.searchKnn(query, maxResults: 3, allowlist: allowlist)
+        let callback = try index.searchKnn(query, maxResults: 3, labelFilter: allowed.contains)
+
+        #expect(native.map(\.id) == callback.map(\.id))
+        for result in native {
+            #expect(allowlist.contains(result.id))
+        }
+    }
+
     /// Labels without stored metadata receive `nil` in the filter closure; they are not skipped
     /// before the predicate runs (same idea as post-filtering an unfiltered search with ``getMetadata(for:)``).
     @Test
