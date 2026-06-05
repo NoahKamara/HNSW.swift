@@ -25,19 +25,22 @@ public actor HNSWContainer {
     ///   - M: The maximum number of outgoing connections in the graph (default: 16)
     ///   - efConstruction: The construction time/accuracy trade-off parameter (default: 200)
     ///   - space: The space type to use for distance calculations (default: .l2)
+    ///   - allowReplaceDeleted: Enables reuse of soft-deleted slots via `replaceDeleted: true` inserts (default: false)
     public init(
         dimension: Int,
         maxElements: Int,
         M: Int = 16,
         efConstruction: Int = 200,
-        space: HNSWSpaceType = .l2
+        space: HNSWSpaceType = .l2,
+        allowReplaceDeleted: Bool = false
     ) {
         self.index = .init(
             dimension: dimension,
             maxElements: maxElements,
             M: M,
             efConstruction: efConstruction,
-            space: space
+            space: space,
+            allowReplaceDeleted: allowReplaceDeleted
         )
     }
 
@@ -67,7 +70,8 @@ public actor HNSWContainer {
             maxElements: self.index.maxElements,
             M: self.index.M,
             efConstruction: self.index.efConstruction,
-            space: self.index.space
+            space: self.index.space,
+            allowReplaceDeleted: self.index.allowReplaceDeleted
         )
     }
 }

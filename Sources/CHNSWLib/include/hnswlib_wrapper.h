@@ -36,9 +36,10 @@ typedef enum {
  * @param M The maximum number of outgoing connections in the graph
  * @param ef_construction The construction time/accuracy trade-off parameter
  * @param space_type The space type to use for distance calculations
+ * @param allow_replace_deleted When true, soft-deleted slots can be reused by add_point with replace_deleted=true
  * @return A pointer to the created index
  */
-void* hnswlib_create_index(int dim, int max_elements, int M, int ef_construction, HNSWSpaceType space_type);
+void* hnswlib_create_index(int dim, int max_elements, int M, int ef_construction, HNSWSpaceType space_type, bool allow_replace_deleted);
 
 /**
  * Frees the memory allocated for an HNSW index.
@@ -53,13 +54,15 @@ void hnswlib_free_index(void* index_ptr);
  * @param index_ptr Pointer to the index
  * @param vector The vector to add (array of floats)
  * @param id The integer ID to associate with the vector
+ * @param replace_deleted When true, reuse a previously soft-deleted slot instead of growing the index;
+ *        requires the index to have been created with allow_replace_deleted=true
  * @return 0 on success, negative value on error:
  *         -1: Index not initialized
  *         -2: ID exceeds maximum elements
  *         -3: Point with ID already exists
  *         -4: General error
  */
-int hnswlib_add_point(void* index_ptr, const float* vector, int id);
+int hnswlib_add_point(void* index_ptr, const float* vector, int id, bool replace_deleted);
 
 /**
  * Searches for k nearest neighbors of a query vector.
@@ -240,13 +243,15 @@ unsigned long hnswlib_get_current_count(void* index_ptr);
  * @param vector The vector to add (array of floats)
  * @param id The integer ID to associate with the vector
  * @param metadata The metadata string to associate with the vector
+ * @param replace_deleted When true, reuse a previously soft-deleted slot instead of growing the index;
+ *        requires the index to have been created with allow_replace_deleted=true
  * @return 0 on success, negative value on error:
  *         -1: Index not initialized
  *         -2: ID exceeds maximum elements
  *         -3: Point with ID already exists
  *         -4: General error
  */
-int hnswlib_add_point_with_metadata(void* index_ptr, const float* vector, int id, const char* metadata);
+int hnswlib_add_point_with_metadata(void* index_ptr, const float* vector, int id, const char* metadata, bool replace_deleted);
 
 /**
  * Gets the metadata associated with a vector ID.

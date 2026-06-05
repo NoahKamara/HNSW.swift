@@ -177,7 +177,7 @@ void loadMetadata(
 extern "C" {
     using namespace hnswlib;
     
-    void* hnswlib_create_index(int dim, int max_elements, int M, int ef_construction, HNSWSpaceType space_type) {
+    void* hnswlib_create_index(int dim, int max_elements, int M, int ef_construction, HNSWSpaceType space_type, bool allow_replace_deleted) {
         hnswlib::SpaceInterface<float>* space;
         if (space_type == HNSW_SPACE_COSINE) {
             space = new hnswlib::InnerProductSpace(dim);  // Use InnerProductSpace for cosine similarity
@@ -185,7 +185,8 @@ extern "C" {
             space = new hnswlib::L2Space(dim);
         }
         
-        hnswlib::HierarchicalNSW<float>* index = new hnswlib::HierarchicalNSW<float>(space, max_elements, M, ef_construction);
+        // random_seed uses hnswlib's default (100); allow_replace_deleted enables reuse of soft-deleted slots.
+        hnswlib::HierarchicalNSW<float>* index = new hnswlib::HierarchicalNSW<float>(space, max_elements, M, ef_construction, 100, allow_replace_deleted);
         HNSWIndexWrapper* wrapper = new HNSWIndexWrapper{
             index,
             space,
@@ -206,7 +207,7 @@ extern "C" {
         delete wrapper;
     }
     
-    int hnswlib_add_point(void* index_ptr, const float* vector, int id) {
+    int hnswlib_add_point(void* index_ptr, const float* vector, int id, bool replace_deleted) {
         try {
             auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
             
@@ -220,19 +221,20 @@ extern "C" {
                 return -2;  // ID exceeds maximum elements
             }
             
-            // Verify the point isn't already added
-            if (wrapper->index->label_lookup_.find(id) != wrapper->index->label_lookup_.end()) {
+            // Reject duplicate labels unless the index was created with in-place replacement enabled.
+            if (wrapper->index->label_lookup_.find(id) != wrapper->index->label_lookup_.end()
+                && !wrapper->index->allow_replace_deleted_) {
                 return -3;  // Point with ID already exists
             }
             
-            wrapper->index->addPoint(vector, id);
+            wrapper->index->addPoint(vector, id, replace_deleted);
             return 0;  // Success
         } catch (const std::exception& e) {
             return -4;  // General error
         }
     }
     
-    int hnswlib_add_point_with_metadata(void* index_ptr, const float* vector, int id, const char* metadata) {
+    int hnswlib_add_point_with_metadata(void* index_ptr, const float* vector, int id, const char* metadata, bool replace_deleted) {
         try {
             auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
             
@@ -246,12 +248,13 @@ extern "C" {
                 return -2;  // ID exceeds maximum elements
             }
             
-            // Verify the point isn't already added
-            if (wrapper->index->label_lookup_.find(id) != wrapper->index->label_lookup_.end()) {
+            // Reject duplicate labels unless the index was created with in-place replacement enabled.
+            if (wrapper->index->label_lookup_.find(id) != wrapper->index->label_lookup_.end()
+                && !wrapper->index->allow_replace_deleted_) {
                 return -3;  // Point with ID already exists
             }
             
-            wrapper->index->addPoint(vector, id);
+            wrapper->index->addPoint(vector, id, replace_deleted);
             if (metadata != nullptr) {
                 wrapper->metadata[id] = std::string(metadata);
                 wrapper->has_metadata[id] = 1;

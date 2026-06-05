@@ -18,6 +18,9 @@ public enum HNSWError: Error, Equatable {
     /// A point with this label was already inserted.
     case pointAlreadyExists(id: Int)
 
+    /// `replaceDeleted` was requested but the index was not created with `allowReplaceDeleted` enabled.
+    case replaceDeletedNotEnabled
+
     /// No point exists for the requested label.
     case labelNotFound(id: Int)
 
@@ -44,6 +47,8 @@ public enum HNSWError: Error, Equatable {
             "ID \(id) exceeds maximum elements (\(max))"
         case .pointAlreadyExists(let id):
             "Point with ID \(id) already exists"
+        case .replaceDeletedNotEnabled:
+            "replaceDeleted requires the index to be created with allowReplaceDeleted: true"
         case .labelNotFound(let id):
             "No point exists with ID \(id)"
         case .vectorMismatch(let expected, let actual):

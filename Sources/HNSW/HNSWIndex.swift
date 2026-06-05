@@ -70,6 +70,13 @@ private let hnswLoadDimensionMismatch: Int32 = -5
 public final class HNSWIndex {
     private let index: UnsafeMutableRawPointer
 
+    /// Whether the index can reuse soft-deleted slots when inserting with `replaceDeleted: true`.
+    ///
+    /// Set at initialization (it must be known before the native graph is built). When `true`, calling
+    /// ``markDeleted(_:)`` makes a slot eligible for reuse, and a later ``addPoint(_:id:metadata:replaceDeleted:)``
+    /// with `replaceDeleted: true` rewrites that slot in place instead of growing the index.
+    public let allowReplaceDeleted: Bool
+
     deinit {
         hnswlib_free_index(index)
     }
@@ -83,19 +90,27 @@ public final class HNSWIndex {
     ///   - efConstruction: Build-time candidate list size (default `200`); larger values usually improve graph quality
     /// at slower inserts.
     ///   - space: ``HNSWSpaceType/l2`` or ``HNSWSpaceType/cosine``; cosine applies normalization in this wrapper.
+    ///   - allowReplaceDeleted: When `true`, soft-deleted slots become eligible for reuse so high-churn workloads can
+    /// insert with `replaceDeleted: true` instead of allocating new slots (see
+    /// ``addPoint(_:id:metadata:replaceDeleted:)``).
     public init(
         dimension: Int,
+        // Number of edges per node in the index graph.
+        // Larger the value - more accurate the search, more space required.
         maxElements: Int,
         M: Int = 16,
         efConstruction: Int = 200,
-        space: HNSWSpaceType = .l2
+        space: HNSWSpaceType = .l2,
+        allowReplaceDeleted: Bool = false
     ) {
+        self.allowReplaceDeleted = allowReplaceDeleted
         self.index = hnswlib_create_index(
             Int32(dimension),
             Int32(maxElements),
             Int32(M),
             Int32(efConstruction),
-            space.cValue
+            space.cValue,
+            allowReplaceDeleted
         )
     }
 
@@ -398,42 +413,65 @@ public final class HNSWIndex {
     ///   - vector: Values whose length must equal ``dimension``; cosine space normalizes a copy before storage.
     ///   - id: Non-negative external label; must be unique and within capacity rules enforced by the native index.
     ///   - metadata: Optional opaque string, or `nil` for no metadata.
+    ///   - replaceDeleted: When `true`, reuse a previously ``markDeleted(_:)`` slot instead of growing the index. This
+    /// lets a saturated index (``elementCount`` at ``maxElements``) accept new points without ``resizeIndex(to:)``.
+    /// Requires the index to have been created with `allowReplaceDeleted: true`. The reused slot belonged to some other
+    /// previously soft-deleted label chosen by the native layer; as elsewhere in this wrapper, metadata is keyed by
+    /// external label and is not auto-cleared, so manage stale entries via ``removeMetadata(for:)`` if needed.
     /// - Throws: ``HNSWError/vectorMismatch(expected:actual:)``, ``HNSWError/invalidLabel(id:)``,
+    /// ``HNSWError/replaceDeletedNotEnabled``,
     /// ``HNSWError/pointAlreadyExists(id:)``, ``HNSWError/idExceedsMaxElements(maxElements:attemptedId:)``, or other
     /// ``HNSWError`` cases from the native layer.
-    public func addPoint(_ vector: [Float], id: Int32, metadata: String? = nil) throws {
+    public func addPoint(_ vector: [Float], id: Int32, metadata: String? = nil, replaceDeleted: Bool = false) throws {
         guard vector.count == self.dimension else {
             throw HNSWError.vectorMismatch(expected: self.dimension, actual: vector.count)
         }
         try self.requireValidLabelID(id)
+        try self.requireReplaceDeletedAllowed(replaceDeleted)
 
         let normalizedVector = self.space == .cosine ? self.normalize(vector) : vector
-        try self.addPointNative(normalizedVector, id: id, metadata: metadata)
+        try self.addPointNative(normalizedVector, id: id, metadata: metadata, replaceDeleted: replaceDeleted)
     }
 
     /// Inserts a vector that is already normalized for cosine indexes.
     ///
     /// For ``HNSWSpaceType/cosine``, `vector` must already have unit length. This skips the wrapper’s normalization
-    /// copy on insert. For ``HNSWSpaceType/l2``, this is equivalent to ``addPoint(_:id:metadata:)``.
-    public func addNormalizedPoint(_ vector: [Float], id: Int32, metadata: String? = nil) throws {
+    /// copy on insert. For ``HNSWSpaceType/l2``, this is equivalent to ``addPoint(_:id:metadata:replaceDeleted:)``.
+    /// See ``addPoint(_:id:metadata:replaceDeleted:)`` for the `replaceDeleted` semantics.
+    public func addNormalizedPoint(
+        _ vector: [Float],
+        id: Int32,
+        metadata: String? = nil,
+        replaceDeleted: Bool = false
+    ) throws {
         guard vector.count == self.dimension else {
             throw HNSWError.vectorMismatch(expected: self.dimension, actual: vector.count)
         }
         try self.requireValidLabelID(id)
+        try self.requireReplaceDeletedAllowed(replaceDeleted)
 
-        try self.addPointNative(vector, id: id, metadata: metadata)
+        try self.addPointNative(vector, id: id, metadata: metadata, replaceDeleted: replaceDeleted)
+    }
+
+    /// Fails fast when `replaceDeleted` is requested on an index that was not created with `allowReplaceDeleted: true`,
+    /// surfacing a clear Swift error instead of the native runtime exception.
+    private func requireReplaceDeletedAllowed(_ replaceDeleted: Bool) throws(HNSWError) {
+        guard !replaceDeleted || self.allowReplaceDeleted else {
+            throw HNSWError.replaceDeletedNotEnabled
+        }
     }
 
     private func addPointNative(
         _ vector: [Float],
         id: Int32,
-        metadata: String?
+        metadata: String?,
+        replaceDeleted: Bool
     ) throws {
         try vector.withUnsafeBufferPointer { ptr in
             let result: Int32 = if let metadata {
-                hnswlib_add_point_with_metadata(self.index, ptr.baseAddress, id, metadata)
+                hnswlib_add_point_with_metadata(self.index, ptr.baseAddress, id, metadata, replaceDeleted)
             } else {
-                hnswlib_add_point(self.index, ptr.baseAddress, id)
+                hnswlib_add_point(self.index, ptr.baseAddress, id, replaceDeleted)
             }
 
             guard result == 0 else {

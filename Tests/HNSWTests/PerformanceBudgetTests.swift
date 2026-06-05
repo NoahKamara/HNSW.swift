@@ -138,7 +138,7 @@ struct PerformanceBudgetTests {
         #expect(p95 <= HNSWPerformance.budgetMilliseconds("HNSW_PERF_L2_SEARCH_P95_MS", default: 1))
     }
 
-    @Test // (.disabled(if: !HNSWPerformance.isEnabled))
+    @Test(.disabled(if: !HNSWPerformance.isEnabled))
     func metadataFilteredSearchP95Budget() throws {
         let dimension = 64
         let vectors = HNSWPerformance.vectors(count: 5000, dimension: dimension)
