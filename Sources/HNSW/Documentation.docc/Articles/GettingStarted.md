@@ -19,8 +19,7 @@ try index.addPoint([0, 0, 1], id: 0)
 try index.addPoint([0, 1, 0], id: 1)
 try index.addPoint([1, 0, 0], id: 2)
 
-index.setEf(32)
-let neighbors = try index.searchKnn([0, 0, 1], maxResults: 2)
+let neighbors = try index.searchKnn([0, 0, 1], maxResults: 2, ef: 32)
 
 for neighbor in neighbors {
     print(neighbor.id, neighbor.distance)
@@ -29,7 +28,7 @@ for neighbor in neighbors {
 
 ### Results
 
-``HNSWIndex/searchKnn(_:maxResults:)`` returns ``HNSWSearchResult`` values ordered by **increasing distance** (best match first). The `distance` interpretation depends on ``HNSWSpaceType`` (L2 vs cosine); see <doc:IndexConfiguration>.
+``HNSWIndex/searchKnn(_:maxResults:ef:)`` returns ``HNSWSearchResult`` values ordered by **increasing distance** (best match first). The `distance` interpretation depends on ``HNSWSpaceType`` (L2 vs cosine); see <doc:IndexConfiguration>.
 
 ### Next steps
 

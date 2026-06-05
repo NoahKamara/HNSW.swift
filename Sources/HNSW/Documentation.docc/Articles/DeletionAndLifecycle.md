@@ -22,7 +22,7 @@ Label ids must be **non-negative**. Negative values produce ``HNSWError/invalidL
 
 ``HNSWIndex/labelExists(id:)`` returns `true` if the external label is still registered in the index, **including** points that are only soft-deleted (``markDeleted(_:)`` does not remove the label from the native lookup map).
 
-``HNSWIndex/isLabelActive(id:)`` returns `true` only when the label exists **and** is not soft-deleted—i.e. it can show up in an ordinary unfiltered ``searchKnn(_:maxResults:)``.
+``HNSWIndex/isLabelActive(id:)`` returns `true` only when the label exists **and** is not soft-deleted—i.e. it can show up in an ordinary unfiltered ``searchKnn(_:maxResults:ef:)``.
 
 Together with ``HNSWIndex/maxElements`` (same notion as “max element capacity”), these APIs support reconciliation: scan candidate labels or slots, drop rows that are not active in HNSW, and soft-delete HNSW labels that no longer exist in your authoritative store, then persist.
 

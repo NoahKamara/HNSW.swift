@@ -30,8 +30,7 @@ struct SearchSemanticsTests {
         try index.addPoint([1, 0], id: 1)
         try index.addPoint([2, 0], id: 2)
         try index.addPoint([3, 0], id: 3)
-        index.setEf(32)
-        let results = try index.searchKnn([0.5, 0], maxResults: 4)
+        let results = try index.searchKnn([0.5, 0], maxResults: 4, ef: 32)
         #expect(results.count == 4)
         let distances = results.map(\.distance)
         for i in distances.indices.dropLast() {
@@ -42,9 +41,9 @@ struct SearchSemanticsTests {
     @Test
     func searchOnEmptyIndexReturnsNoResults() throws {
         let index = HNSWIndex(dimension: 3, maxElements: 4)
-        let plain = try index.searchKnn([0, 0, 1], maxResults: 5)
+        let plain = try index.searchKnn([0, 0, 1], maxResults: 5, ef: 32)
         #expect(plain.isEmpty)
-        let filtered = try index.searchKnn([0, 0, 1], maxResults: 5) { _ in true }
+        let filtered = try index.searchKnn([0, 0, 1], maxResults: 5, ef: 32) { _ in true }
         #expect(filtered.isEmpty)
     }
 
@@ -54,8 +53,8 @@ struct SearchSemanticsTests {
         try index.addPoint([0, 0], id: 0)
         try index.addPoint([10, 0], id: 1)
         let query = [Float]([1, 0])
-        let u = try index.searchKnn(query, maxResults: 2)
-        let f = try index.searchKnn(query, maxResults: 2) { _ in true }
+        let u = try index.searchKnn(query, maxResults: 2, ef: 32)
+        let f = try index.searchKnn(query, maxResults: 2, ef: 32) { _ in true }
         assertSameSearchOrder(u, f)
     }
 
@@ -66,10 +65,10 @@ struct SearchSemanticsTests {
         try index.addPoint([1, 0], id: 1)
         try index.addPoint([3, 0], id: 2)
 
-        let allocated = try index.searchKnn([0.2, 0], maxResults: 2)
+        let allocated = try index.searchKnn([0.2, 0], maxResults: 2, ef: 32)
         var ids: [Int32] = []
         var distances: [Float] = []
-        let count = try index.searchKnn([0.2, 0], maxResults: 2, ids: &ids, distances: &distances)
+        let count = try index.searchKnn([0.2, 0], maxResults: 2, ef: 32, ids: &ids, distances: &distances)
 
         #expect(count == allocated.count)
         #expect(Array(ids.prefix(count)) == allocated.map(\.id))
@@ -84,8 +83,8 @@ struct SearchSemanticsTests {
         try index.addNormalizedPoint([1, 0], id: 0)
         try index.addNormalizedPoint([0, 1], id: 1)
 
-        let normalized = try index.searchKnnNormalized([1, 0], maxResults: 2)
-        let wrapperNormalized = try index.searchKnn([3, 0], maxResults: 2)
+        let normalized = try index.searchKnnNormalized([1, 0], maxResults: 2, ef: 32)
+        let wrapperNormalized = try index.searchKnn([3, 0], maxResults: 2, ef: 32)
 
         #expect(normalized.count == wrapperNormalized.count)
         #expect(normalized.map(\.id) == wrapperNormalized.map(\.id))
@@ -97,13 +96,11 @@ struct SearchSemanticsTests {
         for i in 0..<10 {
             try index.addPoint([Float(i), 0], id: Int32(i))
         }
-        index.setEf(32)
-
         let allowed = Set<Int32>([2, 4, 6, 8])
         let allowlist = HNSWLabelAllowlist(maxElements: index.maxElements, allowing: allowed)
         let query: [Float] = [5, 0]
-        let native = try index.searchKnn(query, maxResults: 3, allowlist: allowlist)
-        let callback = try index.searchKnn(query, maxResults: 3, labelFilter: allowed.contains)
+        let native = try index.searchKnn(query, maxResults: 3, ef: 32, allowlist: allowlist)
+        let callback = try index.searchKnn(query, maxResults: 3, ef: 32, labelFilter: allowed.contains)
 
         #expect(native.map(\.id) == callback.map(\.id))
         for result in native {
@@ -118,8 +115,7 @@ struct SearchSemanticsTests {
         let index = HNSWIndex(dimension: 2, maxElements: 8, M: 8, efConstruction: 40)
         try index.addPoint([0, 0], id: 0)
         try index.addPoint([1, 0], id: 1, metadata: "tagged")
-        index.setEf(32)
-        let hits = try index.searchKnn([0, 0], maxResults: 2) { $0 == nil }
+        let hits = try index.searchKnn([0, 0], maxResults: 2, ef: 32) { $0 == nil }
         #expect(hits.count == 1)
         #expect(hits[0].id == 0)
     }
@@ -135,9 +131,8 @@ struct FilteredSearchLimitsTests {
             let x = Float(i)
             try index.addPoint([x, 0], id: Int32(i), metadata: "{\"tag\":\(i == 5 ? 1 : 0)}")
         }
-        index.setEf(64)
         let query = [Float]([5, 0])
-        let results = try index.searchKnn(query, maxResults: 10) { meta in
+        let results = try index.searchKnn(query, maxResults: 10, ef: 64) { meta in
             meta?.contains("\"tag\":1") == true
         }
         #expect(results.count == 1)
@@ -163,7 +158,7 @@ struct PersistenceTests {
             #expect(try loaded.getMetadata(for: 1) == "beta")
 
             let q = [Float]([0.9, 0.1, 0])
-            let hits = try loaded.searchKnn(q, maxResults: 2)
+            let hits = try loaded.searchKnn(q, maxResults: 2, ef: 32)
             let ids = Set(hits.map(\.id))
             #expect(ids == Set<Int32>([0, 1]))
         }
@@ -212,7 +207,7 @@ struct PersistenceTests {
             let loaded = HNSWIndex(dimension: dim, maxElements: 8, space: .cosine)
             try loaded.loadIndex(from: url.path, maxElements: 8)
             let q = [Float]([30, 40])
-            let hits = try loaded.searchKnn(q, maxResults: 1)
+            let hits = try loaded.searchKnn(q, maxResults: 1, ef: 32)
             #expect(hits.first?.id == 0)
         }
     }

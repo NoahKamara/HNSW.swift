@@ -39,10 +39,9 @@ For concurrent use from multiple tasks, prefer ``HNSWContainer``, an actor that 
 
 ### Search
 
-- ``HNSWIndex/searchKnn(_:maxResults:)``
-- ``HNSWIndex/searchKnn(_:maxResults:labelFilter:)``
-- ``HNSWIndex/searchKnn(_:maxResults:filter:)``
-- ``HNSWIndex/setEf(_:)``
+- ``HNSWIndex/searchKnn(_:maxResults:ef:)``
+- ``HNSWIndex/searchKnn(_:maxResults:ef:labelFilter:)``
+- ``HNSWIndex/searchKnn(_:maxResults:ef:filter:)``
 
 ### Metadata
 

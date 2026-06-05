@@ -12,11 +12,11 @@ If you add the same label twice, ``HNSWError/pointAlreadyExists(id:)`` is thrown
 
 ### k-nearest neighbors
 
-``HNSWIndex/searchKnn(_:maxResults:)`` returns up to `maxResults` neighbors, ordered by **increasing distance** (closest first). Fewer than `k` results are returned when the index contains fewer points or when the graph cannot fill the result buffer.
+``HNSWIndex/searchKnn(_:maxResults:ef:)`` returns up to `maxResults` neighbors, ordered by **increasing distance** (closest first). Fewer than `k` results are returned when the index contains fewer points or when the graph cannot fill the result buffer.
 
 ### Query-time `ef`
 
-Before searching, set ``HNSWIndex/setEf(_:)`` to a value appropriate for your latency and recall targets. There is no single correct value: start from a modest setting, measure recall or user-visible quality on your data, then increase `ef` if results are too noisy or unstable.
+Pass `ef` on every search call. It controls how many candidates are explored during that query. There is no single correct value: start from a modest setting, measure recall or user-visible quality on your data, then increase `ef` if results are too noisy or unstable. Per-query `ef` is safe under concurrent search because it does not mutate index state.
 
 ### Cosine space
 

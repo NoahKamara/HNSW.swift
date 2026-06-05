@@ -55,8 +55,7 @@ private let hnswLoadDimensionMismatch: Int32 = -5
 ///
 /// Store fixed-length vectors under non-negative integer labels, query *k* approximate nearest
 /// neighbors, attach optional metadata, and persist to disk. Search quality and latency depend on
-/// construction parameters (``HNSWIndex/M``, ``HNSWIndex/efConstruction``) and query-time
-/// ``HNSWIndex/setEf(_:)``.
+/// construction parameters (``HNSWIndex/M``, ``HNSWIndex/efConstruction``) and per-search `ef`.
 ///
 /// ## Thread safety
 ///
@@ -156,15 +155,17 @@ public final class HNSWIndex {
     /// - Parameters:
     ///   - query: Query vector whose length must equal ``dimension``.
     ///   - maxResults: Maximum neighbors to return (`k`); may be fewer if the index is sparse.
+    ///   - ef: Per-query candidate list size (higher → usually better recall, slower).
     /// - Returns: ``HNSWSearchResult`` values ordered by increasing ``HNSWSearchResult/distance`` (best match first).
     /// - Throws: ``HNSWError/vectorMismatch(expected:actual:)`` when `query.count` ≠ ``dimension``.
     public func searchKnn(
         _ query: [Float],
-        maxResults: Int
+        maxResults: Int,
+        ef: Int
     ) throws(HNSWError) -> [HNSWSearchResult] {
         var ids = [Int32](repeating: -1, count: maxResults)
         var distances = [Float](repeating: 0, count: maxResults)
-        let resultCount = try self.searchKnn(query, maxResults: maxResults, ids: &ids, distances: &distances)
+        let resultCount = try self.searchKnn(query, maxResults: maxResults, ef: ef, ids: &ids, distances: &distances)
 
         return zip(ids, distances)
             .prefix(resultCount)
@@ -176,10 +177,12 @@ public final class HNSWIndex {
     /// Use this overload on high-QPS paths to reuse `ids` and `distances` arrays across searches. The arrays are grown
     /// to `maxResults` when needed, but otherwise retain their storage. Only the first returned-count entries are
     /// valid.
+    /// - Parameter ef: Per-query candidate list size (higher → usually better recall, slower).
     /// - Returns: Number of valid entries written to `ids` and `distances`.
     public func searchKnn(
         _ query: [Float],
         maxResults: Int,
+        ef: Int,
         ids: inout [Int32],
         distances: inout [Float]
     ) throws(HNSWError) -> Int {
@@ -189,7 +192,7 @@ public final class HNSWIndex {
 
         let normalizedQuery = self.space == .cosine ? self.normalize(query) : query
         return normalizedQuery.withUnsafeBufferPointer { queryPtr in
-            self.searchKnn(queryPtr.baseAddress, maxResults: maxResults, ids: &ids, distances: &distances)
+            self.searchKnn(queryPtr.baseAddress, maxResults: maxResults, ef: ef, ids: &ids, distances: &distances)
         }
     }
 
@@ -197,16 +200,18 @@ public final class HNSWIndex {
     ///
     /// For ``HNSWSpaceType/cosine``, `query` must already have unit length. This skips the wrapper’s normalization
     /// copy.
-    /// For ``HNSWSpaceType/l2``, this is equivalent to ``searchKnn(_:maxResults:)``.
+    /// For ``HNSWSpaceType/l2``, this is equivalent to ``searchKnn(_:maxResults:ef:)``.
     public func searchKnnNormalized(
         _ query: [Float],
-        maxResults: Int
+        maxResults: Int,
+        ef: Int
     ) throws(HNSWError) -> [HNSWSearchResult] {
         var ids = [Int32](repeating: -1, count: maxResults)
         var distances = [Float](repeating: 0, count: maxResults)
         let resultCount = try self.searchKnnNormalized(
             query,
             maxResults: maxResults,
+            ef: ef,
             ids: &ids,
             distances: &distances
         )
@@ -224,6 +229,7 @@ public final class HNSWIndex {
     public func searchKnnNormalized(
         _ query: [Float],
         maxResults: Int,
+        ef: Int,
         ids: inout [Int32],
         distances: inout [Float]
     ) throws(HNSWError) -> Int {
@@ -232,7 +238,7 @@ public final class HNSWIndex {
         }
 
         return query.withUnsafeBufferPointer { queryPtr in
-            self.searchKnn(queryPtr.baseAddress, maxResults: maxResults, ids: &ids, distances: &distances)
+            self.searchKnn(queryPtr.baseAddress, maxResults: maxResults, ef: ef, ids: &ids, distances: &distances)
         }
     }
 
@@ -244,6 +250,7 @@ public final class HNSWIndex {
     public func searchKnn(
         _ query: [Float],
         maxResults: Int,
+        ef: Int,
         allowlist: HNSWLabelAllowlist
     ) throws(HNSWError) -> [HNSWSearchResult] {
         var ids = [Int32](repeating: -1, count: maxResults)
@@ -251,6 +258,7 @@ public final class HNSWIndex {
         let resultCount = try self.searchKnn(
             query,
             maxResults: maxResults,
+            ef: ef,
             allowlist: allowlist,
             ids: &ids,
             distances: &distances
@@ -268,6 +276,7 @@ public final class HNSWIndex {
     public func searchKnn(
         _ query: [Float],
         maxResults: Int,
+        ef: Int,
         allowlist: HNSWLabelAllowlist,
         ids: inout [Int32],
         distances: inout [Float]
@@ -282,6 +291,7 @@ public final class HNSWIndex {
                 self.searchKnn(
                     queryPtr.baseAddress,
                     maxResults: maxResults,
+                    ef: ef,
                     allowlist: allowlistPtr.baseAddress,
                     allowlistCount: allowlist.storage.count,
                     ids: &ids,
@@ -302,13 +312,14 @@ public final class HNSWIndex {
     /// Marked disfavored so a trailing closure without a label (e.g. `{ _ in true }`) resolves to the metadata overload
     /// when both could match.
     ///
-    /// For highly selective filters, increase the query-time `ef` parameter via ``setEf(_:)`` so
-    /// the search explores enough candidates to fill `k` results when that many matches exist.
+    /// For highly selective filters, increase `ef` so the search explores enough candidates to fill `k` results when
+    /// that many matches exist.
     ///
     /// This method is not thread-safe: do not call it concurrently on the same index instance.
     /// - Parameters:
     ///   - query: The query vector (array of floats)
     ///   - maxResults: The maximum number of nearest neighbors to find (`k`)
+    ///   - ef: Per-query candidate list size (higher → usually better recall, slower).
     ///   - labelFilter: Return `true` to allow the label in results.
     /// - Returns: Neighbors that pass the filter, ordered by increasing distance (best match first); fewer than `k`
     /// when fewer than `k` matches exist.
@@ -317,6 +328,7 @@ public final class HNSWIndex {
     public func searchKnn(
         _ query: [Float],
         maxResults: Int,
+        ef: Int,
         labelFilter: @escaping (Int32) -> Bool
     ) throws(HNSWError) -> [HNSWSearchResult] {
         guard query.count == self.dimension else {
@@ -341,6 +353,7 @@ public final class HNSWIndex {
                         idsPtr.baseAddress,
                         distancesPtr.baseAddress,
                         Int32(maxResults),
+                        Int32(ef),
                         userData,
                         hnswLabelFilterTrampoline
                     ))
@@ -356,13 +369,14 @@ public final class HNSWIndex {
     /// Searches for up to `k` nearest neighbors among labels that pass `filter`, using hnswlib’s
     /// filtered graph search (not “take `k` unfiltered then drop”).
     ///
-    /// For highly selective filters, increase the query-time `ef` parameter via ``setEf(_:)`` so
-    /// the search explores enough candidates to fill `k` results when that many matches exist.
+    /// For highly selective filters, increase `ef` so the search explores enough candidates to fill `k` results when
+    /// that many matches exist.
     ///
     /// This method is not thread-safe: do not call it concurrently on the same index instance.
     /// - Parameters:
     ///   - query: The query vector (array of floats)
     ///   - maxResults: The maximum number of nearest neighbors to find (`k`)
+    ///   - ef: Per-query candidate list size (higher → usually better recall, slower).
     ///   - filter: Receives the stored metadata string, or `nil` when none is stored; `nil` is not
     ///     implicitly excluded—the predicate decides, same as filtering an unfiltered search using
     ///     ``getMetadata(for:)``. Return `true` to allow the label.
@@ -372,6 +386,7 @@ public final class HNSWIndex {
     public func searchKnn(
         _ query: [Float],
         maxResults: Int,
+        ef: Int,
         filter: @escaping (String?) -> Bool
     ) throws(HNSWError) -> [(id: Int, distance: Float)] {
         guard query.count == self.dimension else {
@@ -396,6 +411,7 @@ public final class HNSWIndex {
                         idsPtr.baseAddress,
                         distancesPtr.baseAddress,
                         Int32(maxResults),
+                        Int32(ef),
                         userData,
                         hnswMetadataStringFilterTrampoline
                     ))
@@ -494,6 +510,7 @@ public final class HNSWIndex {
     private func searchKnn(
         _ query: UnsafePointer<Float>?,
         maxResults: Int,
+        ef: Int,
         ids: inout [Int32],
         distances: inout [Float]
     ) -> Int {
@@ -511,7 +528,8 @@ public final class HNSWIndex {
                     query,
                     idsPtr.baseAddress,
                     distancesPtr.baseAddress,
-                    Int32(maxResults)
+                    Int32(maxResults),
+                    Int32(ef)
                 ))
             }
         }
@@ -520,6 +538,7 @@ public final class HNSWIndex {
     private func searchKnn(
         _ query: UnsafePointer<Float>?,
         maxResults: Int,
+        ef: Int,
         allowlist: UnsafePointer<UInt8>?,
         allowlistCount: Int,
         ids: inout [Int32],
@@ -540,6 +559,7 @@ public final class HNSWIndex {
                     idsPtr.baseAddress,
                     distancesPtr.baseAddress,
                     Int32(maxResults),
+                    Int32(ef),
                     allowlist,
                     Int32(allowlistCount)
                 ))
@@ -668,13 +688,6 @@ public final class HNSWIndex {
         guard self.maxElements == Int(newSize) else {
             throw HNSWError.generalError(message: "Max elements not updated correctly after resize")
         }
-    }
-
-    /// Sets query-time `ef`, controlling how many candidates are explored per search (higher → usually better recall,
-    /// slower).
-    /// - Parameter ef: Native `ef` value; tune alongside your data and filters.
-    public func setEf(_ ef: Int32) {
-        hnswlib_set_ef(self.index, ef)
     }
 
     // MARK: Persistence

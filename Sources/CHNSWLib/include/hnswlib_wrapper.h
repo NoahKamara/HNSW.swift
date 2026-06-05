@@ -72,9 +72,10 @@ int hnswlib_add_point(void* index_ptr, const float* vector, int id, bool replace
  * @param ids Array to store the IDs of the nearest neighbors (ascending distance, nearest first)
  * @param distances Array to store the distances to the nearest neighbors (same order as ids)
  * @param k The number of nearest neighbors to find
+ * @param ef Per-query candidate list size.
  * @return The number of valid entries written to ids/distances.
  */
-int hnswlib_search_knn(void* index_ptr, const float* query, int* ids, float* distances, int k);
+int hnswlib_search_knn(void* index_ptr, const float* query, int* ids, float* distances, int k, int ef);
 
 /**
  * Per-query label filter. @p labelId is the external label (the same integer id used with add_point).
@@ -97,6 +98,7 @@ int hnswlib_search_knn_with_label_filter(
     int* ids,
     float* distances,
     int k,
+    int ef,
     void* userData,
     HNSWLabelFilterFn filterFn);
 
@@ -112,17 +114,9 @@ int hnswlib_search_knn_with_allowlist(
     int* ids,
     float* distances,
     int k,
+    int ef,
     const uint8_t* allowlist,
     int allowlistCount);
-
-/**
- * Sets the query time accuracy/speed trade-off parameter.
- * 
- * @param index_ptr Pointer to the index
- * @param ef The ef parameter value
- * @return 0 on success, non-zero on failure
- */
-int hnswlib_set_ef(void* index_ptr, int ef);
 
 /**
  * Saves the index to a file.

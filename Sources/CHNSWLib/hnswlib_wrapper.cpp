@@ -297,9 +297,10 @@ extern "C" {
         }
     }
     
-    int hnswlib_search_knn(void* index_ptr, const float* query, int* ids, float* distances, int k) {
+    int hnswlib_search_knn(void* index_ptr, const float* query, int* ids, float* distances, int k, int ef) {
         auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
-        std::priority_queue<std::pair<float, labeltype>> result = wrapper->index->searchKnn(query, k);
+        std::priority_queue<std::pair<float, labeltype>> result =
+            wrapper->index->searchKnn(query, static_cast<size_t>(k), static_cast<size_t>(ef));
 
         int count = static_cast<int>(result.size());
         int index = count;
@@ -320,12 +321,13 @@ extern "C" {
         int* ids,
         float* distances,
         int k,
+        int ef,
         void* user_data,
         HNSWLabelFilterFn filter_fn) {
         auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
         LabelFilterFunctor filter(user_data, filter_fn);
         std::priority_queue<std::pair<float, labeltype>> result =
-            wrapper->index->searchKnn(query, static_cast<size_t>(k), &filter);
+            wrapper->index->searchKnn(query, static_cast<size_t>(k), static_cast<size_t>(ef), &filter);
 
         int count = static_cast<int>(result.size());
         int index = count;
@@ -346,12 +348,13 @@ extern "C" {
         int* ids,
         float* distances,
         int k,
+        int ef,
         const uint8_t* allowlist,
         int allowlistCount) {
         auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
         DenseAllowListFilterFunctor filter(allowlist, static_cast<size_t>(allowlistCount));
         std::priority_queue<std::pair<float, labeltype>> result =
-            wrapper->index->searchKnn(query, static_cast<size_t>(k), &filter);
+            wrapper->index->searchKnn(query, static_cast<size_t>(k), static_cast<size_t>(ef), &filter);
 
         int count = static_cast<int>(result.size());
         int index = count;
@@ -364,16 +367,6 @@ extern "C" {
         }
 
         return count;
-    }
-
-    int hnswlib_set_ef(void* index_ptr, int ef) {
-        try {
-            auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
-            wrapper->index->setEf(ef);
-            return 0;
-        } catch (...) {
-            return -1;
-        }
     }
 
     int hnswlib_save_index(void* index_ptr, const char* path) {

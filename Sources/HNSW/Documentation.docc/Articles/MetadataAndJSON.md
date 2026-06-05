@@ -24,6 +24,6 @@ If encoded data is not valid UTF-8 (unexpected for standard `JSONEncoder` output
 
 ### Using metadata in search
 
-``HNSWIndex/searchKnn(_:maxResults:filter:)`` evaluates your predicate against the stored metadata string (or `nil` when none exists). The predicate decides whether `nil` is allowed; there is no implicit exclusion. This matches post-filtering semantics you would apply after calling ``HNSWIndex/getMetadata(for:)``.
+``HNSWIndex/searchKnn(_:maxResults:ef:filter:)`` evaluates your predicate against the stored metadata string (or `nil` when none exists). The predicate decides whether `nil` is allowed; there is no implicit exclusion. This matches post-filtering semantics you would apply after calling ``HNSWIndex/getMetadata(for:)``.
 
 See <doc:FilteredSearch> for performance notes and thread-safety guidance.

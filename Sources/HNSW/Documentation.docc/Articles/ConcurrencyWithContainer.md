@@ -24,7 +24,7 @@ await container.perform { index in
 }
 
 let neighbors = await container.perform { index in
-    try index.searchKnn(query, maxResults: 10)
+    try index.searchKnn(query, maxResults: 10, ef: 64)
 }
 ```
 

@@ -23,7 +23,7 @@ Pick one space at creation time. If you ``HNSWIndex/loadIndex(from:maxElements:)
 
 ### Query-time accuracy: `ef`
 
-Construction parameters affect index quality. At query time, ``HNSWIndex/setEf(_:)`` controls how many candidates are explored during a search. Higher `ef` generally improves recall (especially for hard queries or filtered search) at the cost of latency. See <doc:AddingAndSearching> and <doc:FilteredSearch>.
+Construction parameters affect index quality. At query time, the `ef` argument on each search call controls how many candidates are explored during that query. Higher `ef` generally improves recall (especially for hard queries or filtered search) at the cost of latency. See <doc:AddingAndSearching> and <doc:FilteredSearch>.
 
 ### Capacity and growth
 

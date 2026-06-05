@@ -121,15 +121,13 @@ struct PerformanceBudgetTests {
         let vectors = HNSWPerformance.vectors(count: 5000, dimension: dimension)
         let queries = HNSWPerformance.vectors(count: 250, dimension: dimension, startingAt: 20000)
         let index = try HNSWPerformance.index(vectors: vectors, dimension: dimension)
-        index.setEf(64)
-
         for query in queries.prefix(25) {
-            _ = try index.searchKnn(query, maxResults: 10)
+            _ = try index.searchKnn(query, maxResults: 10, ef: 64)
         }
 
         var resultCount = 0
         let samples = try HNSWPerformance.searchLatencies(queries: queries) { query in
-            resultCount += try index.searchKnn(query, maxResults: 10).count
+            resultCount += try index.searchKnn(query, maxResults: 10, ef: 64).count
         }
         let p95 = HNSWPerformance.percentile(samples, 0.95)
 
@@ -148,15 +146,13 @@ struct PerformanceBudgetTests {
             dimension: dimension,
             metadata: { $0.isMultiple(of: 8) ? "accept" : "reject" }
         )
-        index.setEf(256)
-
         for query in queries.prefix(15) {
-            _ = try index.searchKnn(query, maxResults: 10) { $0 == "accept" }
+            _ = try index.searchKnn(query, maxResults: 10, ef: 256) { $0 == "accept" }
         }
 
         var resultCount = 0
         let samples = try HNSWPerformance.searchLatencies(queries: queries) { query in
-            resultCount += try index.searchKnn(query, maxResults: 10) { $0 == "accept" }.count
+            resultCount += try index.searchKnn(query, maxResults: 10, ef: 256) { $0 == "accept" }.count
         }
         let p95 = HNSWPerformance.percentile(samples, 0.95)
 
@@ -173,15 +169,13 @@ struct PerformanceBudgetTests {
         let vectors = HNSWPerformance.vectors(count: 5000, dimension: dimension)
         let queries = HNSWPerformance.vectors(count: 200, dimension: dimension, startingAt: 40000)
         let index = try HNSWPerformance.index(vectors: vectors, dimension: dimension, space: .cosine)
-        index.setEf(64)
-
         for query in queries.prefix(20) {
-            _ = try index.searchKnn(query, maxResults: 10)
+            _ = try index.searchKnn(query, maxResults: 10, ef: 64)
         }
 
         var resultCount = 0
         let samples = try HNSWPerformance.searchLatencies(queries: queries) { query in
-            resultCount += try index.searchKnn(query, maxResults: 10).count
+            resultCount += try index.searchKnn(query, maxResults: 10, ef: 64).count
         }
         let p95 = HNSWPerformance.percentile(samples, 0.95)
 

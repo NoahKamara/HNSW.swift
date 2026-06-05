@@ -65,15 +65,13 @@ struct NativeFilterPerformanceTests {
         for (id, vector) in vectors.enumerated() {
             try index.addPoint(vector, id: Int32(id))
         }
-        index.setEf(256)
-
         let allowlist = HNSWLabelAllowlist(
             maxElements: vectors.count,
             allowing: (0..<vectors.count).lazy.filter { $0.isMultiple(of: 8) }.map(Int32.init)
         )
 
         for query in queries.prefix(15) {
-            _ = try index.searchKnn(query, maxResults: 10, allowlist: allowlist)
+            _ = try index.searchKnn(query, maxResults: 10, ef: 256, allowlist: allowlist)
         }
 
         var resultCount = 0
@@ -81,7 +79,7 @@ struct NativeFilterPerformanceTests {
         samples.reserveCapacity(queries.count)
         for query in queries {
             try samples.append(NativeFilterPerformance.elapsedMilliseconds {
-                resultCount += try index.searchKnn(query, maxResults: 10, allowlist: allowlist).count
+                resultCount += try index.searchKnn(query, maxResults: 10, ef: 256, allowlist: allowlist).count
             })
         }
 

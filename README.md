@@ -46,7 +46,7 @@ try index.addPoint(vector, id: 0)
 
 // Search for nearest neighbors
 let queryVector = [Float](repeating: 0.0, count: dimension)
-let results = try index.searchKnn(queryVector, maxResults: 10)
+let results = try index.searchKnn(queryVector, maxResults: 10, ef: 64)
 ```
 
 You can checkout the Tests/ directory for an example on how to use NLEmbeddings

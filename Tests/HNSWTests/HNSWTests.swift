@@ -30,7 +30,7 @@ struct IndexTests {
 
         try index.addPoint(vector, id: 0)
         #expect(index.elementCount == 1)
-        let results = try index.searchKnn(vector, maxResults: 1)
+        let results = try index.searchKnn(vector, maxResults: 1, ef: 64)
         #expect(results.first?.id == 0)
     }
 
@@ -78,11 +78,11 @@ struct IndexTests {
         try index.addPoint(vector, id: 0)
 
         try index.markDeleted(0)
-        var results = try index.searchKnn(vector, maxResults: 1)
+        var results = try index.searchKnn(vector, maxResults: 1, ef: 64)
         #expect(results.isEmpty)
 
         try index.unmarkDeleted(0)
-        results = try index.searchKnn(vector, maxResults: 1)
+        results = try index.searchKnn(vector, maxResults: 1, ef: 64)
         #expect(results.count == 1)
     }
 
@@ -155,12 +155,12 @@ struct IndexTests {
         #expect(index.elementCount == 2)
 
         // Verify both points are searchable
-        let results = try index.searchKnn(fooVector, maxResults: 2)
+        let results = try index.searchKnn(fooVector, maxResults: 2, ef: 64)
         #expect(results.count == 2)
         #expect(Set(results.map(\.id)) == Set([0, 1]))
 
         // Verify we can still search with the second vector
-        let results2 = try index.searchKnn(barVector, maxResults: 2)
+        let results2 = try index.searchKnn(barVector, maxResults: 2, ef: 64)
         #expect(results2.count == 2)
         #expect(Set(results2.map(\.id)) == Set([0, 1]))
     }
@@ -180,7 +180,8 @@ struct IndexTests {
 
         let results = try index.searchKnn(
             queryVector.map(Float.init),
-            maxResults: fruityWords.count
+            maxResults: fruityWords.count,
+            ef: 64
         )
 
         let foundWords = Set(results.map { words[Int($0.id)] })
@@ -213,7 +214,8 @@ struct IndexTests {
         // Search only for fruits
         let results = try index.searchKnn(
             queryVector.map(Float.init),
-            maxResults: words.count
+            maxResults: words.count,
+            ef: 64
         ) { metadata in
             guard let metadata else { return false }
             return metadata.contains("\"peel\": true")
@@ -233,8 +235,8 @@ struct IndexTests {
 
         let query: [Float] = [2, 0, 0]
         let k = 2
-        let unfiltered = try index.searchKnn(query, maxResults: k)
-        let filtered = try index.searchKnn(query, maxResults: k) { _ in true }
+        let unfiltered = try index.searchKnn(query, maxResults: k, ef: 32)
+        let filtered = try index.searchKnn(query, maxResults: k, ef: 32) { _ in true }
 
         #expect(unfiltered.count == filtered.count)
         for (a, b) in zip(unfiltered, filtered) {
@@ -252,7 +254,7 @@ struct IndexTests {
         let k = acceptCount
         let maxElements = rejectCount + acceptCount
         let index = HNSWIndex(dimension: 2, maxElements: maxElements, M: 16, efConstruction: 200, space: .l2)
-        index.setEf(Int32(max(128, maxElements * 4)))
+        let ef = max(128, maxElements * 4)
 
         for i in 0..<rejectCount {
             let x = Float(i + 1) * 1e-5
@@ -265,10 +267,10 @@ struct IndexTests {
         }
 
         let query: [Float] = [0, 0]
-        let unfilteredTopK = try index.searchKnn(query, maxResults: k)
+        let unfilteredTopK = try index.searchKnn(query, maxResults: k, ef: ef)
         #expect(unfilteredTopK.allSatisfy { $0.id < Int32(rejectCount) })
 
-        let filtered = try index.searchKnn(query, maxResults: k) { $0 == "accept" }
+        let filtered = try index.searchKnn(query, maxResults: k, ef: ef) { $0 == "accept" }
         #expect(filtered.count == k)
         let filteredIds = Set(filtered.map(\.id))
         #expect(filteredIds.count == k)
@@ -284,7 +286,7 @@ struct IndexTests {
         let k = acceptCount
         let maxElements = rejectCount + acceptCount
         let index = HNSWIndex(dimension: 2, maxElements: maxElements, M: 16, efConstruction: 200, space: .l2)
-        index.setEf(Int32(max(128, maxElements * 4)))
+        let ef = max(128, maxElements * 4)
 
         for i in 0..<rejectCount {
             let x = Float(i + 1) * 1e-5
@@ -297,10 +299,15 @@ struct IndexTests {
         }
 
         let query: [Float] = [0, 0]
-        let unfilteredTopK = try index.searchKnn(query, maxResults: k)
+        let unfilteredTopK = try index.searchKnn(query, maxResults: k, ef: ef)
         #expect(unfilteredTopK.allSatisfy { $0.id < Int32(rejectCount) })
 
-        let filtered = try index.searchKnn(query, maxResults: k, labelFilter: { id in id >= Int32(rejectCount) })
+        let filtered = try index.searchKnn(
+            query,
+            maxResults: k,
+            ef: ef,
+            labelFilter: { id in id >= Int32(rejectCount) }
+        )
         #expect(filtered.count == k)
         let filteredIds = Set(filtered.map(\.id))
         #expect(filteredIds.count == k)
@@ -322,19 +329,19 @@ struct IndexTests {
         }
 
         #expect(throws: HNSWError.self) {
-            try index.searchKnn([1.0, 2.0, 3.0], maxResults: 1)
+            try index.searchKnn([1.0, 2.0, 3.0], maxResults: 1, ef: 32)
         }
 
         #expect(throws: HNSWError.self) {
-            try index.searchKnn([1.0], maxResults: 1)
+            try index.searchKnn([1.0], maxResults: 1, ef: 32)
         }
 
         #expect(throws: HNSWError.self) {
-            try index.searchKnn([1.0, 2.0, 3.0], maxResults: 1) { _ in true }
+            try index.searchKnn([1.0, 2.0, 3.0], maxResults: 1, ef: 32) { _ in true }
         }
 
         #expect(throws: HNSWError.self) {
-            try index.searchKnn([1.0], maxResults: 1) { _ in true }
+            try index.searchKnn([1.0], maxResults: 1, ef: 32) { _ in true }
         }
     }
 }
