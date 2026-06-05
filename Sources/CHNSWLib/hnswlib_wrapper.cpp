@@ -7,6 +7,10 @@
 #include <functional>
 #include <cstring>
 #include <fstream>
+#include <thread>
+#include <atomic>
+#include <mutex>
+#include <cmath>
 
 struct HNSWIndexWrapper {
     hnswlib::HierarchicalNSW<float>* index;
@@ -17,7 +21,103 @@ struct HNSWIndexWrapper {
     HNSWSpaceType space_type;  // Store the space type
     int last_loaded_dimension;
     HNSWSpaceType last_loaded_space_type;
+    int num_threads_default;
+    bool entry_point_added;
 };
+
+template<class Function>
+static void ParallelFor(size_t start, size_t end, size_t numThreads, Function fn) {
+    if (numThreads <= 0) {
+        numThreads = std::thread::hardware_concurrency();
+    }
+
+    if (numThreads == 1) {
+        for (size_t id = start; id < end; id++) {
+            fn(id, 0);
+        }
+        return;
+    }
+
+    std::vector<std::thread> threads;
+    std::atomic<size_t> current(start);
+    std::exception_ptr lastException = nullptr;
+    std::mutex lastExceptMutex;
+
+    for (size_t threadId = 0; threadId < numThreads; ++threadId) {
+        threads.emplace_back([&, threadId] {
+            while (true) {
+                size_t id = current.fetch_add(1);
+                if (id >= end) {
+                    break;
+                }
+
+                try {
+                    fn(id, threadId);
+                } catch (...) {
+                    std::unique_lock<std::mutex> lastExcepLock(lastExceptMutex);
+                    lastException = std::current_exception();
+                    current = end;
+                    break;
+                }
+            }
+        });
+    }
+
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    if (lastException) {
+        std::rethrow_exception(lastException);
+    }
+}
+
+static void normalizeVector(const float* data, int dim, float* out) {
+    float norm = 0.0f;
+    for (int i = 0; i < dim; i++) {
+        norm += data[i] * data[i];
+    }
+    norm = 1.0f / (std::sqrt(norm) + 1e-30f);
+    for (int i = 0; i < dim; i++) {
+        out[i] = data[i] * norm;
+    }
+}
+
+static bool shouldNormalizeVectors(const HNSWIndexWrapper& wrapper, bool vectors_are_normalized) {
+    return wrapper.space_type == HNSW_SPACE_COSINE && !vectors_are_normalized;
+}
+
+static int validateAddPoint(const HNSWIndexWrapper& wrapper, int id, bool replace_deleted) {
+    if (wrapper.index == nullptr) {
+        return -1;
+    }
+    if (id >= wrapper.index->max_elements_) {
+        return -2;
+    }
+    if (wrapper.index->label_lookup_.find(id) != wrapper.index->label_lookup_.end()
+        && !wrapper.index->allow_replace_deleted_) {
+        return -3;
+    }
+    (void)replace_deleted;
+    return 0;
+}
+
+static void fillSearchRow(
+    std::priority_queue<std::pair<float, hnswlib::labeltype>>& result,
+    int row,
+    int k,
+    int* ids,
+    float* distances) {
+    int count = static_cast<int>(result.size());
+    int index = count;
+    while (!result.empty()) {
+        const auto& top = result.top();
+        --index;
+        ids[row * k + index] = static_cast<int>(top.second);
+        distances[row * k + index] = top.first;
+        result.pop();
+    }
+}
 
 struct HNSWWrapperMetadata {
     uint32_t magic;
@@ -195,7 +295,9 @@ extern "C" {
             std::vector<uint8_t>(max_elements, 0),
             space_type,
             dim,
-            space_type
+            space_type,
+            -1,
+            false
         };
         return static_cast<void*>(wrapper);
     }
@@ -228,9 +330,96 @@ extern "C" {
             }
             
             wrapper->index->addPoint(vector, id, replace_deleted);
+            wrapper->entry_point_added = true;
             return 0;  // Success
         } catch (const std::exception& e) {
             return -4;  // General error
+        }
+    }
+
+    void hnswlib_set_num_threads(void* index_ptr, int num_threads) {
+        auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
+        wrapper->num_threads_default = num_threads;
+    }
+
+    int hnswlib_get_num_threads(void* index_ptr) {
+        auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
+        return wrapper->num_threads_default;
+    }
+
+    int hnswlib_add_points(
+        void* index_ptr,
+        const float* vectors,
+        const int* ids,
+        int count,
+        bool replace_deleted,
+        bool vectors_are_normalized,
+        int num_threads) {
+        if (count <= 0) {
+            return 0;
+        }
+
+        try {
+            auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
+            if (wrapper->index == nullptr) {
+                return -1;
+            }
+
+            const int dim = wrapper->dimension;
+            const bool normalize = shouldNormalizeVectors(*wrapper, vectors_are_normalized);
+
+            for (int i = 0; i < count; i++) {
+                const int validation = validateAddPoint(*wrapper, ids[i], replace_deleted);
+                if (validation != 0) {
+                    return validation;
+                }
+            }
+
+            if (num_threads <= 0) {
+                num_threads = wrapper->num_threads_default;
+            }
+            size_t thread_count = num_threads <= 0
+                ? std::thread::hardware_concurrency()
+                : static_cast<size_t>(num_threads);
+            if (static_cast<size_t>(count) <= thread_count * 4) {
+                thread_count = 1;
+            }
+
+            size_t start = 0;
+            if (!wrapper->entry_point_added) {
+                const float* first_vector = vectors;
+                std::vector<float> first_normalized(static_cast<size_t>(dim));
+                if (normalize) {
+                    normalizeVector(vectors, dim, first_normalized.data());
+                    first_vector = first_normalized.data();
+                }
+                wrapper->index->addPoint(first_vector, ids[0], replace_deleted);
+                wrapper->entry_point_added = true;
+                start = 1;
+            }
+
+            if (start >= static_cast<size_t>(count)) {
+                return 0;
+            }
+
+            if (!normalize) {
+                ParallelFor(start, static_cast<size_t>(count), thread_count, [&](size_t row, size_t) {
+                    const float* vector = vectors + row * dim;
+                    wrapper->index->addPoint(vector, ids[row], replace_deleted);
+                });
+            } else {
+                std::vector<float> norm_array(thread_count * static_cast<size_t>(dim));
+                ParallelFor(start, static_cast<size_t>(count), thread_count, [&](size_t row, size_t threadId) {
+                    const size_t start_idx = threadId * static_cast<size_t>(dim);
+                    const float* vector = vectors + row * dim;
+                    normalizeVector(vector, dim, norm_array.data() + start_idx);
+                    wrapper->index->addPoint(norm_array.data() + start_idx, ids[row], replace_deleted);
+                });
+            }
+
+            return 0;
+        } catch (const std::exception&) {
+            return -4;
         }
     }
     
@@ -255,6 +444,7 @@ extern "C" {
             }
             
             wrapper->index->addPoint(vector, id, replace_deleted);
+            wrapper->entry_point_added = true;
             if (metadata != nullptr) {
                 wrapper->metadata[id] = std::string(metadata);
                 wrapper->has_metadata[id] = 1;
@@ -313,6 +503,64 @@ extern "C" {
         }
 
         return count;
+    }
+
+    int hnswlib_search_knn_batch(
+        void* index_ptr,
+        const float* queries,
+        int query_count,
+        int* ids,
+        float* distances,
+        int k,
+        int ef,
+        bool queries_are_normalized,
+        int num_threads) {
+        if (query_count <= 0) {
+            return 0;
+        }
+
+        try {
+            auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
+            if (wrapper->index == nullptr) {
+                return -1;
+            }
+
+            const int dim = wrapper->dimension;
+            const bool normalize = shouldNormalizeVectors(*wrapper, queries_are_normalized);
+
+            if (num_threads <= 0) {
+                num_threads = wrapper->num_threads_default;
+            }
+            size_t thread_count = num_threads <= 0
+                ? std::thread::hardware_concurrency()
+                : static_cast<size_t>(num_threads);
+            if (static_cast<size_t>(query_count) <= thread_count * 4) {
+                thread_count = 1;
+            }
+
+            if (!normalize) {
+                ParallelFor(0, static_cast<size_t>(query_count), thread_count, [&](size_t row, size_t) {
+                    const float* query = queries + row * dim;
+                    auto result = wrapper->index->searchKnn(
+                        query, static_cast<size_t>(k), static_cast<size_t>(ef));
+                    fillSearchRow(result, static_cast<int>(row), k, ids, distances);
+                });
+            } else {
+                std::vector<float> norm_array(thread_count * static_cast<size_t>(dim));
+                ParallelFor(0, static_cast<size_t>(query_count), thread_count, [&](size_t row, size_t threadId) {
+                    const size_t start_idx = threadId * static_cast<size_t>(dim);
+                    const float* query = queries + row * dim;
+                    normalizeVector(query, dim, norm_array.data() + start_idx);
+                    auto result = wrapper->index->searchKnn(
+                        norm_array.data() + start_idx, static_cast<size_t>(k), static_cast<size_t>(ef));
+                    fillSearchRow(result, static_cast<int>(row), k, ids, distances);
+                });
+            }
+
+            return 0;
+        } catch (const std::exception&) {
+            return -4;
+        }
     }
 
     int hnswlib_search_knn_with_label_filter(
@@ -405,6 +653,7 @@ extern "C" {
             wrapper->metadata.assign(wrapper->index->max_elements_, std::string());
             wrapper->has_metadata.assign(wrapper->index->max_elements_, 0);
             loadMetadata(wrapper->metadata, wrapper->has_metadata, path);
+            wrapper->entry_point_added = wrapper->index->cur_element_count > 0;
             return 0;
         } catch (...) {
             return -1;

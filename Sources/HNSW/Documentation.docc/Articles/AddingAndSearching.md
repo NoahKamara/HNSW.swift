@@ -10,9 +10,13 @@ Use ``HNSWIndex/addPoint(_:id:metadata:)`` (or the JSON convenience overload) to
 
 If you add the same label twice, ``HNSWError/pointAlreadyExists(id:)`` is thrown.
 
+For bulk ingest without per-vector metadata, ``HNSWIndex/addPoints(_:ids:replaceDeleted:numThreads:)`` crosses into native code once and can use multiple threads (configure ``HNSWIndex/numThreads`` or pass `numThreads` per call). Metadata is not supported on the batch insert path.
+
 ### k-nearest neighbors
 
 ``HNSWIndex/searchKnn(_:maxResults:ef:)`` returns up to `maxResults` neighbors, ordered by **increasing distance** (closest first). Fewer than `k` results are returned when the index contains fewer points or when the graph cannot fill the result buffer.
+
+For many queries, ``HNSWIndex/searchKnnBatch(_:maxResults:ef:numThreads:)`` runs batch k-NN in one native call with optional multithreading.
 
 ### Query-time `ef`
 

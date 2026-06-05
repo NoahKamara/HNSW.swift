@@ -469,6 +469,142 @@ public final class HNSWIndex {
         try self.addPointNative(vector, id: id, metadata: metadata, replaceDeleted: replaceDeleted)
     }
 
+    /// Default thread count for ``addPoints`` and ``searchKnnBatch`` when `numThreads` is `nil` or non-positive.
+    ///
+    /// `-1` means use hardware concurrency. This value is stored in the native wrapper.
+    public var numThreads: Int {
+        get { Int(hnswlib_get_num_threads(self.index)) }
+        set { hnswlib_set_num_threads(self.index, Int32(newValue)) }
+    }
+
+    /// Inserts many vectors in one native call, optionally using multiple threads.
+    ///
+    /// Vectors are passed as a row-major flat buffer (`vectors.count` must equal `ids.count * dimension`).
+    /// For ``HNSWSpaceType/cosine``, vectors are normalized in native code unless you use
+    /// ``addNormalizedPoints(vectors:ids:replaceDeleted:numThreads:)``.
+    ///
+    /// Metadata is not supported on this path; use ``addPoint(_:id:metadata:)`` when you need per-label strings.
+    public func addPoints(
+        vectors: [Float],
+        ids: [Int32],
+        replaceDeleted: Bool = false,
+        numThreads: Int? = nil
+    ) throws {
+        try self.addPoints(
+            vectors: vectors,
+            ids: ids,
+            replaceDeleted: replaceDeleted,
+            vectorsAreNormalized: false,
+            numThreads: numThreads
+        )
+    }
+
+    /// Inserts many pre-normalized vectors for cosine indexes in one native call.
+    public func addNormalizedPoints(
+        vectors: [Float],
+        ids: [Int32],
+        replaceDeleted: Bool = false,
+        numThreads: Int? = nil
+    ) throws {
+        try self.addPoints(
+            vectors: vectors,
+            ids: ids,
+            replaceDeleted: replaceDeleted,
+            vectorsAreNormalized: true,
+            numThreads: numThreads
+        )
+    }
+
+    /// Inserts many vectors from a nested array in one native call.
+    public func addPoints(
+        _ vectors: [[Float]],
+        ids: [Int32],
+        replaceDeleted: Bool = false,
+        numThreads: Int? = nil
+    ) throws {
+        guard vectors.count == ids.count else {
+            throw HNSWError.generalError(message: "Vector count (\(vectors.count)) must match id count (\(ids.count))")
+        }
+        var flat = [Float]()
+        flat.reserveCapacity(vectors.count * self.dimension)
+        for vector in vectors {
+            guard vector.count == self.dimension else {
+                throw HNSWError.vectorMismatch(expected: self.dimension, actual: vector.count)
+            }
+            flat.append(contentsOf: vector)
+        }
+        try self.addPoints(
+            vectors: flat,
+            ids: ids,
+            replaceDeleted: replaceDeleted,
+            numThreads: numThreads
+        )
+    }
+
+    /// Batch k-nearest neighbor search over many queries in one native call.
+    ///
+    /// Returns one result array per query, each ordered by increasing distance. For cosine indexes, queries are
+    /// normalized in native code unless you use ``searchKnnBatchNormalized(queries:maxResults:ef:numThreads:)``.
+    public func searchKnnBatch(
+        queries: [Float],
+        queryCount: Int,
+        maxResults: Int,
+        ef: Int,
+        numThreads: Int? = nil
+    ) throws(HNSWError) -> [[HNSWSearchResult]] {
+        try self.searchKnnBatch(
+            queries: queries,
+            queryCount: queryCount,
+            maxResults: maxResults,
+            ef: ef,
+            queriesAreNormalized: false,
+            numThreads: numThreads
+        )
+    }
+
+    /// Batch search for queries that are already normalized for cosine indexes.
+    public func searchKnnBatchNormalized(
+        queries: [Float],
+        queryCount: Int,
+        maxResults: Int,
+        ef: Int,
+        numThreads: Int? = nil
+    ) throws(HNSWError) -> [[HNSWSearchResult]] {
+        try self.searchKnnBatch(
+            queries: queries,
+            queryCount: queryCount,
+            maxResults: maxResults,
+            ef: ef,
+            queriesAreNormalized: true,
+            numThreads: numThreads
+        )
+    }
+
+    /// Batch k-NN search from nested query vectors.
+    public func searchKnnBatch(
+        _ queries: [[Float]],
+        maxResults: Int,
+        ef: Int,
+        numThreads: Int? = nil
+    ) throws(HNSWError) -> [[HNSWSearchResult]] {
+        guard !queries.isEmpty else { return [] }
+        var flat = [Float]()
+        flat.reserveCapacity(queries.count * self.dimension)
+        for query in queries {
+            guard query.count == self.dimension else {
+                throw HNSWError.vectorMismatch(expected: self.dimension, actual: query.count)
+            }
+            flat.append(contentsOf: query)
+        }
+        return try self.searchKnnBatch(
+            queries: flat,
+            queryCount: queries.count,
+            maxResults: maxResults,
+            ef: ef,
+            numThreads: numThreads
+        )
+    }
+
     /// Fails fast when `replaceDeleted` is requested on an index that was not created with `allowReplaceDeleted: true`,
     /// surfacing a clear Swift error instead of the native runtime exception.
     private func requireReplaceDeletedAllowed(_ replaceDeleted: Bool) throws(HNSWError) {
@@ -489,20 +625,123 @@ public final class HNSWIndex {
             } else {
                 hnswlib_add_point(self.index, ptr.baseAddress, id, replaceDeleted)
             }
+            try Self.throwIfAddFailed(result, id: id, maxElements: self.maxElements)
+        }
+    }
 
-            guard result == 0 else {
-                switch result {
-                case -1:
-                    throw HNSWError.indexNotInitialized
-                case -2:
-                    throw HNSWError.idExceedsMaxElements(maxElements: Int(self.maxElements), attemptedId: Int(id))
-                case -3:
-                    throw HNSWError.pointAlreadyExists(id: Int(id))
-                case -4:
-                    throw HNSWError.generalError(message: "Failed to add point")
-                default:
-                    throw HNSWError.generalError(message: "Unknown error")
+    private func addPoints(
+        vectors: [Float],
+        ids: [Int32],
+        replaceDeleted: Bool,
+        vectorsAreNormalized: Bool,
+        numThreads: Int?
+    ) throws {
+        guard vectors.count == ids.count * self.dimension else {
+            throw HNSWError.generalError(
+                message: "Expected \(ids.count * self.dimension) vector elements, got \(vectors.count)"
+            )
+        }
+        for id in ids {
+            try self.requireValidLabelID(id)
+        }
+        try self.requireReplaceDeletedAllowed(replaceDeleted)
+
+        let threadArg = Int32(numThreads ?? 0)
+        let result = vectors.withUnsafeBufferPointer { vectorsPtr in
+            ids.withUnsafeBufferPointer { idsPtr in
+                hnswlib_add_points(
+                    self.index,
+                    vectorsPtr.baseAddress,
+                    idsPtr.baseAddress,
+                    Int32(ids.count),
+                    replaceDeleted,
+                    vectorsAreNormalized,
+                    threadArg
+                )
+            }
+        }
+        try Self.throwIfAddFailed(result, id: nil, maxElements: self.maxElements)
+    }
+
+    private func searchKnnBatch(
+        queries: [Float],
+        queryCount: Int,
+        maxResults: Int,
+        ef: Int,
+        queriesAreNormalized: Bool,
+        numThreads: Int?
+    ) throws(HNSWError) -> [[HNSWSearchResult]] {
+        guard queries.count == queryCount * self.dimension else {
+            throw HNSWError.generalError(
+                message: "Expected \(queryCount * self.dimension) query elements, got \(queries.count)"
+            )
+        }
+        guard queryCount > 0 else { return [] }
+
+        var ids = [Int32](repeating: -1, count: queryCount * maxResults)
+        var distances = [Float](repeating: 0, count: queryCount * maxResults)
+        let threadArg = Int32(numThreads ?? 0)
+
+        let status = queries.withUnsafeBufferPointer { queriesPtr in
+            ids.withUnsafeMutableBufferPointer { idsPtr in
+                distances.withUnsafeMutableBufferPointer { distancesPtr in
+                    hnswlib_search_knn_batch(
+                        self.index,
+                        queriesPtr.baseAddress,
+                        Int32(queryCount),
+                        idsPtr.baseAddress,
+                        distancesPtr.baseAddress,
+                        Int32(maxResults),
+                        Int32(ef),
+                        queriesAreNormalized,
+                        threadArg
+                    )
                 }
+            }
+        }
+
+        guard status == 0 else {
+            switch status {
+            case -1:
+                throw HNSWError.indexNotInitialized
+            case -4:
+                throw HNSWError.generalError(message: "Batch search failed")
+            default:
+                throw HNSWError.generalError(message: "Unknown batch search error")
+            }
+        }
+
+        var output: [[HNSWSearchResult]] = []
+        output.reserveCapacity(queryCount)
+        for row in 0..<queryCount {
+            let base = row * maxResults
+            var rowResults: [HNSWSearchResult] = []
+            rowResults.reserveCapacity(maxResults)
+            for offset in 0..<maxResults {
+                let label = ids[base + offset]
+                if label < 0 { break }
+                rowResults.append(HNSWSearchResult(id: label, distance: distances[base + offset]))
+            }
+            output.append(rowResults)
+        }
+        return output
+    }
+
+    private static func throwIfAddFailed(_ result: Int32, id: Int32?, maxElements: Int) throws {
+        guard result == 0 else {
+            switch result {
+            case -1:
+                throw HNSWError.indexNotInitialized
+            case -2:
+                let attempted = id.map(Int.init) ?? -1
+                throw HNSWError.idExceedsMaxElements(maxElements: maxElements, attemptedId: attempted)
+            case -3:
+                let existing = id.map(Int.init) ?? -1
+                throw HNSWError.pointAlreadyExists(id: existing)
+            case -4:
+                throw HNSWError.generalError(message: "Failed to add point")
+            default:
+                throw HNSWError.generalError(message: "Unknown error")
             }
         }
     }

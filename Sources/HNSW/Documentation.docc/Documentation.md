@@ -34,12 +34,14 @@ For concurrent use from multiple tasks, prefer ``HNSWContainer``, an actor that 
 ### Indexing
 
 - ``HNSWIndex/addPoint(_:id:metadata:)``
+- ``HNSWIndex/addPoints(_:ids:replaceDeleted:numThreads:)``
 - ``HNSWIndex/addPoint(_:id:jsonMetadata:encoder:)``
 - ``HNSWIndex/resizeIndex(to:)``
 
 ### Search
 
 - ``HNSWIndex/searchKnn(_:maxResults:ef:)``
+- ``HNSWIndex/searchKnnBatch(_:maxResults:ef:numThreads:)``
 - ``HNSWIndex/searchKnn(_:maxResults:ef:labelFilter:)``
 - ``HNSWIndex/searchKnn(_:maxResults:ef:filter:)``
 

@@ -65,6 +65,34 @@ void hnswlib_free_index(void* index_ptr);
 int hnswlib_add_point(void* index_ptr, const float* vector, int id, bool replace_deleted);
 
 /**
+ * Sets the default thread count for batch add/search (-1 uses hardware concurrency).
+ */
+void hnswlib_set_num_threads(void* index_ptr, int num_threads);
+
+/**
+ * Returns the default thread count for batch operations (-1 means hardware concurrency).
+ */
+int hnswlib_get_num_threads(void* index_ptr);
+
+/**
+ * Adds many vectors in one native call. @p vectors is row-major with @p count rows of length @p dim
+ * (from the index). @p ids must have @p count elements.
+ *
+ * For cosine indexes, vectors are normalized in native code unless @p vectors_are_normalized is true.
+ * When @p num_threads is <= 0, the wrapper default from hnswlib_set_num_threads is used.
+ *
+ * @return 0 on success, or the same negative codes as hnswlib_add_point for the first failure.
+ */
+int hnswlib_add_points(
+    void* index_ptr,
+    const float* vectors,
+    const int* ids,
+    int count,
+    bool replace_deleted,
+    bool vectors_are_normalized,
+    int num_threads);
+
+/**
  * Searches for k nearest neighbors of a query vector.
  * 
  * @param index_ptr Pointer to the index
@@ -76,6 +104,26 @@ int hnswlib_add_point(void* index_ptr, const float* vector, int id, bool replace
  * @return The number of valid entries written to ids/distances.
  */
 int hnswlib_search_knn(void* index_ptr, const float* query, int* ids, float* distances, int k, int ef);
+
+/**
+ * Batch k-NN search. @p queries is row-major (@p query_count rows). Results are written to @p ids and
+ * @p distances in row-major layout with @p k columns per query (ascending distance within each row).
+ *
+ * For cosine indexes, queries are normalized in native code unless @p queries_are_normalized is true.
+ * When @p num_threads is <= 0, the wrapper default from hnswlib_set_num_threads is used.
+ *
+ * @return 0 on success, -1 if the index is not initialized, -4 on general failure.
+ */
+int hnswlib_search_knn_batch(
+    void* index_ptr,
+    const float* queries,
+    int query_count,
+    int* ids,
+    float* distances,
+    int k,
+    int ef,
+    bool queries_are_normalized,
+    int num_threads);
 
 /**
  * Per-query label filter. @p labelId is the external label (the same integer id used with add_point).

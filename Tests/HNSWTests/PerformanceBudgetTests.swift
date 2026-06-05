@@ -64,6 +64,19 @@ private enum HNSWPerformance {
         return index
     }
 
+    static func batchIndex(vectors: [[Float]], dimension: Int, space: HNSWSpaceType = .l2) throws -> HNSWIndex {
+        let index = HNSWIndex(
+            dimension: dimension,
+            maxElements: vectors.count,
+            M: 16,
+            efConstruction: 100,
+            space: space
+        )
+        let ids = vectors.indices.map { Int32($0) }
+        try index.addPoints(vectors, ids: ids)
+        return index
+    }
+
     static func searchLatencies(
         queries: [[Float]],
         _ body: ([Float]) throws -> Void
@@ -114,6 +127,24 @@ struct PerformanceBudgetTests {
     }
 
     @Test
+    func l2BatchInsertBudget() throws {
+        guard HNSWPerformance.isEnabled else { return }
+
+        let dimension = 64
+        let vectors = HNSWPerformance.vectors(count: 5000, dimension: dimension)
+        var insertedCount = 0
+
+        let elapsed = try HNSWPerformance.elapsedMilliseconds {
+            let index = try HNSWPerformance.batchIndex(vectors: vectors, dimension: dimension)
+            insertedCount = index.elementCount
+        }
+
+        HNSWPerformance.report("l2_insert_5000_batch", elapsed)
+        #expect(insertedCount == vectors.count)
+        #expect(elapsed <= HNSWPerformance.budgetMilliseconds("HNSW_PERF_L2_BATCH_INSERT_MS", default: 1000))
+    }
+
+    @Test
     func l2SearchP95Budget() throws {
         guard HNSWPerformance.isEnabled else { return }
 
@@ -134,6 +165,50 @@ struct PerformanceBudgetTests {
         HNSWPerformance.report("l2_search_p95", p95)
         #expect(resultCount == queries.count * 10)
         #expect(p95 <= HNSWPerformance.budgetMilliseconds("HNSW_PERF_L2_SEARCH_P95_MS", default: 1))
+    }
+
+    @Test
+    func l2BatchSearchTotalBudget() throws {
+        guard HNSWPerformance.isEnabled else { return }
+
+        let dimension = 64
+        let vectors = HNSWPerformance.vectors(count: 5000, dimension: dimension)
+        let queries = HNSWPerformance.vectors(count: 250, dimension: dimension, startingAt: 20000)
+        let index = try HNSWPerformance.batchIndex(vectors: vectors, dimension: dimension)
+
+        var flatQueries = [Float]()
+        flatQueries.reserveCapacity(queries.count * dimension)
+        for query in queries {
+            flatQueries.append(contentsOf: query)
+        }
+
+        var warmupCount = 0
+        _ = try HNSWPerformance.elapsedMilliseconds {
+            warmupCount = try index.searchKnnBatch(
+                queries: flatQueries,
+                queryCount: queries.count,
+                maxResults: 10,
+                ef: 64
+            ).count
+        }
+        #expect(warmupCount == queries.count)
+
+        var resultRows = 0
+        let totalElapsed = try HNSWPerformance.elapsedMilliseconds {
+            let batch = try index.searchKnnBatch(
+                queries: flatQueries,
+                queryCount: queries.count,
+                maxResults: 10,
+                ef: 64
+            )
+            resultRows = batch.count
+        }
+
+        let perQueryMs = totalElapsed / Double(queries.count)
+        HNSWPerformance.report("l2_batch_search_total", totalElapsed)
+        HNSWPerformance.report("l2_batch_search_per_query", perQueryMs)
+        #expect(resultRows == queries.count)
+        #expect(totalElapsed <= HNSWPerformance.budgetMilliseconds("HNSW_PERF_L2_BATCH_SEARCH_TOTAL_MS", default: 50))
     }
 
     @Test(.disabled(if: !HNSWPerformance.isEnabled))

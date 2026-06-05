@@ -309,6 +309,62 @@ struct AddAndErrorTests {
         #expect(try index.labelExists(id: 1) == false)
         #expect(try index.getMetadata(for: 1) == nil)
     }
+
+    @Test
+    func batchAddMatchesSequentialAdd() throws {
+        let vectors: [[Float]] = [
+            [0, 0],
+            [1, 0],
+            [0, 1],
+            [1, 1],
+        ]
+        let ids: [Int32] = [0, 1, 2, 3]
+
+        let sequential = HNSWIndex(dimension: 2, maxElements: vectors.count, M: 8, efConstruction: 40)
+        for (vector, id) in zip(vectors, ids) {
+            try sequential.addPoint(vector, id: id)
+        }
+
+        let batch = HNSWIndex(dimension: 2, maxElements: vectors.count, M: 8, efConstruction: 40)
+        try batch.addPoints(vectors, ids: ids)
+
+        #expect(batch.elementCount == sequential.elementCount)
+        for id in ids {
+            let batchExists = try batch.labelExists(id: id)
+            let sequentialExists = try sequential.labelExists(id: id)
+            #expect(batchExists == sequentialExists)
+        }
+
+        let query: [Float] = [0.25, 0.25]
+        let sequentialHits = try sequential.searchKnn(query, maxResults: 2, ef: 32)
+        let batchHits = try batch.searchKnn(query, maxResults: 2, ef: 32)
+        #expect(batchHits.map(\.id) == sequentialHits.map(\.id))
+    }
+
+    @Test
+    func batchSearchMatchesSingleSearch() throws {
+        let index = HNSWIndex(dimension: 2, maxElements: 8, M: 8, efConstruction: 40)
+        let stored: [[Float]] = [
+            [0, 0],
+            [1, 0],
+            [0, 1],
+            [1, 1],
+        ]
+        try index.addPoints(stored, ids: [0, 1, 2, 3])
+
+        let queries: [[Float]] = [
+            [0.1, 0.1],
+            [0.9, 0.1],
+            [0.1, 0.9],
+        ]
+        let batch = try index.searchKnnBatch(queries, maxResults: 2, ef: 32)
+        #expect(batch.count == queries.count)
+
+        for (query, row) in zip(queries, batch) {
+            let single = try index.searchKnn(query, maxResults: 2, ef: 32)
+            #expect(row.map(\.id) == single.map(\.id))
+        }
+    }
 }
 
 @Suite("HNSWContainer")
