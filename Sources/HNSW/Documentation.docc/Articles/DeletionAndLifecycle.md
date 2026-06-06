@@ -8,6 +8,8 @@ Soft-delete labels, resize capacity, follow label rules, and reset an actor-wrap
 
 ``HNSWIndex/markDeleted(_:)`` marks a label so it is omitted from search results without necessarily reclaiming all underlying graph storage immediately. ``HNSWIndex/unmarkDeleted(_:)`` restores a previously deleted label.
 
+For many labels, ``HNSWIndex/markDeleted(ids:numThreads:)`` and ``HNSWIndex/unmarkDeleted(ids:numThreads:)`` cross into native code once and can use multiple threads (see ``HNSWIndex/numThreads``).
+
 Errors from these operations surface as ``HNSWError/generalError(message:)`` when the native layer reports failure.
 
 ### Resizing capacity

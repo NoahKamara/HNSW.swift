@@ -56,7 +56,9 @@ For concurrent use from multiple tasks, prefer ``HNSWContainer``, an actor that 
 ### Maintenance
 
 - ``HNSWIndex/markDeleted(_:)``
+- ``HNSWIndex/markDeleted(ids:numThreads:)``
 - ``HNSWIndex/unmarkDeleted(_:)``
+- ``HNSWIndex/unmarkDeleted(ids:numThreads:)``
 - ``HNSWIndex/labelExists(id:)``
 - ``HNSWIndex/isLabelActive(id:)``
 

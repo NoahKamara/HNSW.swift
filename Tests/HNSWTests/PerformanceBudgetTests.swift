@@ -168,6 +168,46 @@ struct PerformanceBudgetTests {
     }
 
     @Test
+    func l2BulkDeleteBudget() throws {
+        guard HNSWPerformance.isEnabled else { return }
+
+        let dimension = 64
+        let count = 5000
+        let vectors = HNSWPerformance.vectors(count: count, dimension: dimension)
+        let index = try HNSWPerformance.batchIndex(vectors: vectors, dimension: dimension)
+        let ids = vectors.indices.map { Int32($0) }
+
+        let elapsed = try HNSWPerformance.elapsedMilliseconds {
+            for id in ids {
+                try index.markDeleted(id)
+            }
+        }
+
+        HNSWPerformance.report("l2_delete_5000", elapsed)
+        #expect(try index.isLabelActive(id: 0) == false)
+        #expect(elapsed <= HNSWPerformance.budgetMilliseconds("HNSW_PERF_L2_DELETE_MS", default: 500))
+    }
+
+    @Test
+    func l2BatchDeleteBudget() throws {
+        guard HNSWPerformance.isEnabled else { return }
+
+        let dimension = 64
+        let count = 5000
+        let vectors = HNSWPerformance.vectors(count: count, dimension: dimension)
+        let index = try HNSWPerformance.batchIndex(vectors: vectors, dimension: dimension)
+        let ids = vectors.indices.map { Int32($0) }
+
+        let elapsed = try HNSWPerformance.elapsedMilliseconds {
+            try index.markDeleted(ids: ids)
+        }
+
+        HNSWPerformance.report("l2_delete_5000_batch", elapsed)
+        #expect(try index.isLabelActive(id: 0) == false)
+        #expect(elapsed <= HNSWPerformance.budgetMilliseconds("HNSW_PERF_L2_BATCH_DELETE_MS", default: 500))
+    }
+
+    @Test
     func l2BatchSearchTotalBudget() throws {
         guard HNSWPerformance.isEnabled else { return }
 

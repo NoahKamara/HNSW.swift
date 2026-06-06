@@ -342,6 +342,40 @@ struct AddAndErrorTests {
     }
 
     @Test
+    func batchDeleteMatchesSequentialDelete() throws {
+        let vectors: [[Float]] = [
+            [0, 0],
+            [1, 0],
+            [0, 1],
+            [1, 1],
+        ]
+        let ids: [Int32] = [0, 1, 2, 3]
+        let query: [Float] = [0.25, 0.25]
+
+        let sequential = HNSWIndex(dimension: 2, maxElements: vectors.count, M: 8, efConstruction: 40)
+        try sequential.addPoints(vectors, ids: ids)
+        for id in ids {
+            try sequential.markDeleted(id)
+        }
+        #expect(try sequential.searchKnn(query, maxResults: 4, ef: 32).isEmpty)
+
+        let batch = HNSWIndex(dimension: 2, maxElements: vectors.count, M: 8, efConstruction: 40)
+        try batch.addPoints(vectors, ids: ids)
+        try batch.markDeleted(ids: ids)
+        #expect(try batch.searchKnn(query, maxResults: 4, ef: 32).isEmpty)
+
+        for id in ids {
+            #expect(try batch.labelExists(id: id) == true)
+            #expect(try batch.isLabelActive(id: id) == false)
+        }
+
+        try batch.unmarkDeleted(ids: ids)
+        let restored = try batch.searchKnn(query, maxResults: 1, ef: 32)
+        #expect(restored.count == 1)
+        #expect(try batch.isLabelActive(id: restored[0].id) == true)
+    }
+
+    @Test
     func batchSearchMatchesSingleSearch() throws {
         let index = HNSWIndex(dimension: 2, maxElements: 8, M: 8, efConstruction: 40)
         let stored: [[Float]] = [

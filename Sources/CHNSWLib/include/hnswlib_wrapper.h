@@ -195,6 +195,15 @@ int hnswlib_load_index(void* index_ptr, const char* path, int max_elements);
 int hnswlib_mark_deleted(void* index_ptr, int id);
 
 /**
+ * Soft-deletes many labels in one native call. @p ids must have @p count elements.
+ *
+ * When @p num_threads is <= 0, the wrapper default from hnswlib_set_num_threads is used.
+ *
+ * @return 0 on success, -1 if the index is not initialized or a label operation fails, -4 on general failure.
+ */
+int hnswlib_mark_deleted_batch(void* index_ptr, const int* ids, int count, int num_threads);
+
+/**
  * Unmarks an element as deleted.
  * 
  * @param index_ptr Pointer to the index
@@ -202,6 +211,16 @@ int hnswlib_mark_deleted(void* index_ptr, int id);
  * @return 0 on success, non-zero on failure
  */
 int hnswlib_unmark_deleted(void* index_ptr, int id);
+
+/**
+ * Restores many soft-deleted labels in one native call. @p ids must have @p count elements.
+ *
+ * When @p num_threads is <= 0, the wrapper default from hnswlib_set_num_threads is used. Not safe when
+ * allow_replace_deleted is enabled and deleted slots may have been reused via add_point.
+ *
+ * @return 0 on success, -1 if the index is not initialized or a label operation fails, -4 on general failure.
+ */
+int hnswlib_unmark_deleted_batch(void* index_ptr, const int* ids, int count, int num_threads);
 
 /**
  * Returns whether an external label is present in the index (including soft-deleted points).

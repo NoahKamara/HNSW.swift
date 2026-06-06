@@ -843,10 +843,25 @@ public final class HNSWIndex {
     /// - Throws: ``HNSWError/generalError(message:)`` when the native call fails (for example if the label is not
     /// deletable in the current state).
     public func markDeleted(_ id: Int32) throws(HNSWError) {
-        try self.requireValidLabelID(id)
-        let result = hnswlib_mark_deleted(index, id)
+        try self.markDeleted(ids: [id])
+    }
+
+    /// Soft-deletes many labels in one native call, optionally using multiple threads.
+    ///
+    /// Fails on the first label that cannot be deleted (missing, already deleted, etc.). Configure default parallelism
+    /// via ``numThreads`` or pass `numThreads` per call.
+    public func markDeleted(ids: [Int32], numThreads: Int? = nil) throws(HNSWError) {
+        guard !ids.isEmpty else { return }
+        for id in ids {
+            try self.requireValidLabelID(id)
+        }
+
+        let threadArg = Int32(numThreads ?? 0)
+        let result = ids.withUnsafeBufferPointer { idsPtr in
+            hnswlib_mark_deleted_batch(self.index, idsPtr.baseAddress, Int32(ids.count), threadArg)
+        }
         guard result == 0 else {
-            throw HNSWError.generalError(message: "Failed to mark element as deleted")
+            throw HNSWError.generalError(message: "Failed to mark elements as deleted")
         }
     }
 
@@ -854,10 +869,24 @@ public final class HNSWIndex {
     /// - Parameter id: Non-negative label.
     /// - Throws: ``HNSWError/generalError(message:)`` when the native call fails.
     public func unmarkDeleted(_ id: Int32) throws(HNSWError) {
-        try self.requireValidLabelID(id)
-        let result = hnswlib_unmark_deleted(index, id)
+        try self.unmarkDeleted(ids: [id])
+    }
+
+    /// Restores many soft-deleted labels in one native call, optionally using multiple threads.
+    ///
+    /// Not safe when ``allowReplaceDeleted`` is enabled and deleted slots may have been reused via insert APIs.
+    public func unmarkDeleted(ids: [Int32], numThreads: Int? = nil) throws(HNSWError) {
+        guard !ids.isEmpty else { return }
+        for id in ids {
+            try self.requireValidLabelID(id)
+        }
+
+        let threadArg = Int32(numThreads ?? 0)
+        let result = ids.withUnsafeBufferPointer { idsPtr in
+            hnswlib_unmark_deleted_batch(self.index, idsPtr.baseAddress, Int32(ids.count), threadArg)
+        }
         guard result == 0 else {
-            throw HNSWError.generalError(message: "Failed to unmark element")
+            throw HNSWError.generalError(message: "Failed to unmark elements")
         }
     }
 

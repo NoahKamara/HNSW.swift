@@ -663,6 +663,9 @@ extern "C" {
     int hnswlib_mark_deleted(void* index_ptr, int id) {
         try {
             auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
+            if (wrapper->index == nullptr) {
+                return -1;
+            }
             wrapper->index->markDelete(id);
             return 0;
         } catch (...) {
@@ -670,14 +673,65 @@ extern "C" {
         }
     }
 
+    static int markDeletedBatchImpl(
+        void* index_ptr,
+        const int* ids,
+        int count,
+        int num_threads,
+        bool unmark) {
+        if (count <= 0) {
+            return 0;
+        }
+
+        try {
+            auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
+            if (wrapper->index == nullptr) {
+                return -1;
+            }
+
+            if (num_threads <= 0) {
+                num_threads = wrapper->num_threads_default;
+            }
+            size_t thread_count = num_threads <= 0
+                ? std::thread::hardware_concurrency()
+                : static_cast<size_t>(num_threads);
+            if (static_cast<size_t>(count) <= thread_count * 4) {
+                thread_count = 1;
+            }
+
+            ParallelFor(0, static_cast<size_t>(count), thread_count, [&](size_t row, size_t) {
+                if (unmark) {
+                    wrapper->index->unmarkDelete(ids[row]);
+                } else {
+                    wrapper->index->markDelete(ids[row]);
+                }
+            });
+
+            return 0;
+        } catch (...) {
+            return -1;
+        }
+    }
+
+    int hnswlib_mark_deleted_batch(void* index_ptr, const int* ids, int count, int num_threads) {
+        return markDeletedBatchImpl(index_ptr, ids, count, num_threads, false);
+    }
+
     int hnswlib_unmark_deleted(void* index_ptr, int id) {
         try {
             auto* wrapper = static_cast<HNSWIndexWrapper*>(index_ptr);
+            if (wrapper->index == nullptr) {
+                return -1;
+            }
             wrapper->index->unmarkDelete(id);
             return 0;
         } catch (...) {
             return -1;
         }
+    }
+
+    int hnswlib_unmark_deleted_batch(void* index_ptr, const int* ids, int count, int num_threads) {
+        return markDeletedBatchImpl(index_ptr, ids, count, num_threads, true);
     }
 
     int hnswlib_label_exists(void* index_ptr, int id) {
